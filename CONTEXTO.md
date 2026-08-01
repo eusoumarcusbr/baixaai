@@ -114,6 +114,48 @@ pela URL da aba ativa:
    extractor procura, a versão "normal" da notícia (sem `google/amp/` na
    URL) costuma funcionar.
 
+10. **Versionamento com git direto na pasta `baixaai`, dentro do disco
+    externo — mesmo essa pasta bloqueando exclusão/rename de arquivo por
+    padrão.** O git precisa criar e apagar arquivos de lock internos
+    (`HEAD.lock`, `refs/heads/*.lock`, objetos temporários) a cada
+    operação; num volume externo montado neste ambiente, `unlink`/`rename`
+    desses arquivos vinha falhando com "Operation not permitted",
+    quebrando `git commit`/`git branch -M` etc. Resolvido chamando a
+    ferramenta `allow_cowork_file_delete` sobre a pasta (`BaixarVideos`),
+    o que libera exclusão de arquivo nela — depois disso, `git init -b
+    main` + commit + reset funcionam normalmente ali, sem precisar de
+    pasta temporária. Testado de ponta a ponta (commit de teste + reset
+    --hard) antes de confirmar como resolvido.
+
+11. **Token do GitHub nunca fica salvo em disco.** Pushes feitos por mim
+    (Claude, via Cowork) usam um Personal Access Token colado pelo usuário
+    na hora, embutido só temporariamente na URL do remote
+    (`git remote set-url`) e removido logo depois do push — nunca commitado
+    nem persistido em `.git/config`. Consequência prática: toda vez que o
+    push precisar ser feito a partir do Cowork (não do Terminal do Mac do
+    usuário), vou pedir um token novo, porque cada sessão começa sem
+    credenciais salvas. Se o usuário preferir não repetir isso, pode rodar
+    `git push` ele mesmo do Terminal do Mac — lá o `git-credential-osxkeychain`
+    (Keychain do macOS) guarda a credencial persistentemente depois da
+    primeira autenticação.
+
+## Versionamento (Git/GitHub)
+
+- Repositório remoto: https://github.com/eusoumarcusbr/baixaai (público).
+- Branch principal: `main`.
+- O repositório git vive dentro da própria pasta `baixaai/` no disco
+  externo (`/Volumes/SSD_NVME/AgentesIA/BaixarVideos/baixaai`), não numa
+  pasta temporária — ver decisão #10 sobre o ajuste de permissão que isso
+  exigiu.
+- `.gitignore` exclui `native-host/paths.json` (gerado pelo `install.sh`,
+  específico de cada máquina), `run_host.sh`/`run_host.bat` (idem), logs
+  do host nativo, e lixo de metadados do macOS (`.DS_Store`, `._*`) comum
+  em volumes externos/exFAT.
+- Fluxo normal pra versionar mudanças novas: `git add -A`, `git commit -m
+  "..."`, `git push` — a partir da própria pasta `baixaai`.
+- Ver decisão #11 sobre autenticação: sem token salvo em disco por
+  padrão.
+
 ## Histórico de depuração (problemas já resolvidos)
 
 Nesta ordem, ao longo do desenvolvimento:
@@ -142,6 +184,14 @@ Nesta ordem, ao longo do desenvolvimento:
 12. Pedido de suporte a vídeos do G1/Globo (ex.: link AMP de notícia) →
     domínio `*.globo.com` adicionado à allowlist de download direto, sem
     mudança no host nativo (decisão #9).
+13. `git commit`/`git branch -M` falhando com "Operation not permitted" ao
+    tentar versionar a pasta `baixaai` no disco externo → liberada
+    exclusão de arquivo na pasta via `allow_cowork_file_delete`, git
+    inicializado direto com `-b main` pra evitar rename de branch
+    (decisão #10). Push do Cowork pro GitHub deu 403 na primeira tentativa
+    → token fine-grained tinha sido gerado sem nenhuma permissão de
+    repositório marcada; corrigido adicionando "Contents: Read and write"
+    nas permissões do token.
 
 ## Estado atual
 
@@ -151,6 +201,9 @@ Nesta ordem, ao longo do desenvolvimento:
   `baixaai_host.py`) mas **ainda não testado em máquina real** — só
   validado sintaticamente. Se for testar, esperar precisar da mesma
   rodada de ajustes que o macOS precisou (caminhos, permissões, etc.).
+- **Versionamento**: com backup no GitHub desde 01/08/2026
+  (https://github.com/eusoumarcusbr/baixaai, branch `main`). Ver seção
+  "Versionamento (Git/GitHub)" acima.
 
 ## Estrutura de arquivos
 
