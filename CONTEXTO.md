@@ -1,0 +1,172 @@
+# BaixaAI — Contexto do projeto
+
+Documento de referência técnica sobre a extensão BaixaAI: o que é, como
+está construída, por que cada decisão foi tomada, e o histórico de
+problemas já resolvidos. Serve pra retomar o desenvolvimento sem precisar
+redescobrir tudo de novo.
+
+## O que é
+
+Extensão de Chrome (uso pessoal) com dois modos, escolhidos automaticamente
+pela URL da aba ativa:
+
+- **YouTube / Instagram / Globo** (`*.globo.com`: g1, ge, gshow, globoplay,
+  oglobo, redeglobo etc.) → baixa o arquivo de vídeo original de verdade
+  (via `yt-dlp` + `ffmpeg` rodando fora do Chrome), normalizado pra Full HD:
+  1920×1080 (16:9) horizontal ou 1080×1920 (9:16) vertical.
+- **Qualquer outro site** → grava a tela em tempo real (canvas +
+  MediaRecorder), já que não dá pra extrair o arquivo original de forma
+  confiável em sites genéricos.
+
+## Arquitetura
+
+### Extensão (roda dentro do Chrome)
+
+- `manifest.json` — Manifest V3. Tem um campo `key` fixo (a chave pública
+  gerada uma vez) pra garantir que o **ID da extensão nunca muda**, mesmo
+  recarregada como "unpacked" — isso é o que permite o native messaging
+  host saber de antemão qual `allowed_origins` aceitar. ID atual:
+  `dflppeifdophmkfncbkkafpfnbnfhajp`.
+- `popup.html/css/js` — UI. Detecta o modo (download real vs captura),
+  mostra o seletor de proporção (ajustar/preencher) e dispara a ação.
+- `content.js` — só usado no modo de captura de tela: acha o `<video>` da
+  página, desenha frame a frame num canvas do tamanho-alvo (letterbox ou
+  crop conforme escolhido) e grava com `MediaRecorder`, disparando o
+  download via `<a download>` (sem precisar de `chrome.downloads`).
+- `background.js` — ponte entre popup, content script e o ajudante nativo.
+
+### Ajudante local (roda fora do Chrome, via Native Messaging)
+
+- `native-host/baixaai_host.py` — o host nativo. Ver decisões abaixo pra
+  entender por que ele é mais complexo do que parece necessário.
+- `native-host/install.sh` (macOS) / `install.ps1` (Windows) — instalam
+  `yt-dlp`/`ffmpeg`/`deno`, resolvem caminhos absolutos, geram o wrapper
+  (`run_host.sh`/`run_host.bat`) e registram o host no Chrome.
+- `native-host/com.baixaai.host.json.template` — manifesto do native
+  messaging host (mesmo formato nos dois SOs; só o mecanismo de registro
+  muda — pasta fixa no macOS, Registro do Windows no Windows).
+
+## Decisões de design (e por quê)
+
+1. **Processo worker totalmente desacoplado do Chrome.**
+   O Chrome (Manifest V3) pode encerrar o service worker da extensão a
+   qualquer momento por inatividade — e isso mata a conexão de native
+   messaging junto, mesmo no meio de um download longo. Por isso
+   `baixaai_host.py`, ao receber um pedido de download, só dispara um
+   **subprocesso separado** (`--worker <job_id> <url> <fitMode>`, com
+   `start_new_session=True` no macOS/Linux ou
+   `CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS` no Windows) e responde
+   `"started"` na hora. O trabalho pesado roda imune ao Chrome.
+
+2. **`paths.json` com caminhos absolutos resolvidos na instalação.**
+   O Chrome inicia o host nativo sem o PATH de um shell interativo — não
+   carrega `.zshrc`/conda/Homebrew. Sem isso, `yt-dlp`/`ffmpeg`/`deno`
+   simplesmente não são encontrados. O instalador resolve os caminhos reais
+   (`command -v` / `Get-Command`) e grava em `paths.json`; o script lê
+   dali antes de cair pro PATH normal.
+
+3. **`--ffmpeg-location` e `--js-runtimes deno:<path>` passados
+   explicitamente pro yt-dlp.** Mesmo motivo do item 2, mas aplicado
+   dentro do próprio yt-dlp — ele faz sua própria busca por binários e não
+   sabe do `paths.json`. Sem isso: vídeo e áudio baixam separados e não
+   são unidos (sem `--ffmpeg-location`), ou o YouTube só libera imagens em
+   vez de vídeo real (sem `--js-runtimes` apontando pro deno).
+
+4. **Prioriza H.264 (avc1) sobre AV1 no seletor de formato do yt-dlp**
+   (`-f "bv*[vcodec^=avc1]+ba/b[vcodec^=avc1]/bv*+ba/b"`). Builds mais
+   antigas de ffmpeg (comum via conda) não têm decoder de AV1, o que o
+   YouTube manda com frequência — resultado sem esse filtro: arquivo final
+   de 0 bytes, sem erro óbvio até olhar o log do ffmpeg.
+
+5. **`--no-playlist`.** Sem isso, se a URL da aba tiver `&list=...`
+   (comum ao assistir dentro de uma playlist), o yt-dlp baixa a playlist
+   inteira em vez do vídeo clicado.
+
+6. **Nome de arquivo final com contador automático (`_2`, `_3`...) se já
+   existir.** Títulos genéricos (comum no Instagram, tipo "Video by
+   usuario") colidem entre vídeos diferentes; sem checagem, o `ffmpeg -y`
+   sobrescreve silenciosamente.
+
+7. **Aviso de conclusão por som (`afplay`/`winsound`), não só notificação
+   nativa.** Notificação via `osascript` no macOS depende de permissão
+   (modo Foco bloqueia sem avisar nada) e quebra com caracteres não-ASCII
+   no texto (travessão "—" já causou erro de sintaxe do AppleScript). Som
+   direto não passa pela Central de Notificações e não depende de
+   permissão nenhuma.
+
+8. **Retry com/sem cookies do Chrome no yt-dlp.** Primeiro tenta
+   `--cookies-from-browser chrome` (necessário pra muito conteúdo do
+   Instagram e pra passar do "confirme que você não é um robô" do
+   YouTube); se falhar, tenta de novo sem cookies.
+
+9. **Globo entrou na allowlist de download direto sem lógica nova no host
+   nativo.** `isDirectDownloadSite()` (`background.js`) agora aceita
+   qualquer `host === 'globo.com' || host.endsWith('.globo.com')`. Não
+   precisou mexer em `baixaai_host.py` porque ele já roda `yt-dlp` genérico
+   sobre qualquer URL — o yt-dlp tem extractor nativo pra Globo
+   (`GloboIE`/`GloboArticleIE`) que lê o HTML da página em busca do player
+   embutido (`data-video-id`, `data-player-videosids` etc.), então o mesmo
+   fluxo de YouTube/Instagram já funciona sem alteração no worker.
+   Confirmado com `yt-dlp -j` numa URL AMP do g1.globo.com: o extractor
+   `[GloboArticle]` reconheceu a URL (mesmo path com `google/amp/` no
+   meio — a regex do extractor não se importa com segmentos extras de
+   path). Se uma página AMP específica não expuser a marcação que o
+   extractor procura, a versão "normal" da notícia (sem `google/amp/` na
+   URL) costuma funcionar.
+
+## Histórico de depuração (problemas já resolvidos)
+
+Nesta ordem, ao longo do desenvolvimento:
+
+1. Extensão não reconhecida em abas já abertas antes de instalar/recarregar
+   → corrigido com injeção automática do content script sob demanda.
+2. `ffmpeg`/`yt-dlp` não encontrados pelo host nativo → `paths.json`.
+3. `python3` do shebang não resolvido pelo Chrome → wrapper com shebang
+   fixo (`/bin/bash`) chamando o python3 por caminho absoluto.
+4. "Native host has exited" mesmo com tudo certo → pasta da extensão
+   estava num volume externo (`/Volumes/...`), o macOS bloqueia o Chrome
+   de rodar processos ali; resolvido movendo o `native-host` pra dentro do
+   diretório do usuário.
+5. Download travava/zerava no meio (MV3 mata o service worker) → worker
+   desacoplado (decisão de design #1).
+6. Vídeo sem áudio → `--ffmpeg-location` (decisão #3).
+7. Notificação do macOS falhando silenciosamente → logging dos erros de
+   `osascript`/`afplay` + depois trocado por som (decisão #7); causa raiz
+   real era permissão do modo Foco + encoding do travessão.
+8. YouTube pedindo "confirme que não é robô" → faltava `deno` (decisão #3).
+9. Baixava playlist inteira em vez do vídeo → `--no-playlist` (decisão #5).
+10. Arquivo final de 0 bytes → codec AV1 sem decoder no ffmpeg do conda →
+    prioriza H.264 (decisão #4).
+11. Dois vídeos com nome igual se sobrescrevendo → contador automático
+    (decisão #6).
+12. Pedido de suporte a vídeos do G1/Globo (ex.: link AMP de notícia) →
+    domínio `*.globo.com` adicionado à allowlist de download direto, sem
+    mudança no host nativo (decisão #9).
+
+## Estado atual
+
+- **macOS**: testado de ponta a ponta pelo usuário (Marcus), funcionando
+  pra YouTube e Instagram, com todos os fixes acima aplicados.
+- **Windows**: implementado (`install.ps1`, trechos cross-platform em
+  `baixaai_host.py`) mas **ainda não testado em máquina real** — só
+  validado sintaticamente. Se for testar, esperar precisar da mesma
+  rodada de ajustes que o macOS precisou (caminhos, permissões, etc.).
+
+## Estrutura de arquivos
+
+```
+baixaai/
+  manifest.json          # MV3, key fixo → ID: dflppeifdophmkfncbkkafpfnbnfhajp
+  background.js           # ponte popup <-> native messaging
+  content.js               # fallback: captura de tela (sites genéricos)
+  popup.html / .css / .js  # UI
+  icons/
+  GUIA_INSTALACAO.md      # guia passo a passo (usuário final)
+  CONTEXTO.md              # este arquivo
+  README.md
+  native-host/
+    baixaai_host.py                # host nativo + worker desacoplado
+    install.sh                     # instalador macOS
+    install.ps1                    # instalador Windows
+    com.baixaai.host.json.template # manifesto do native messaging host
+```

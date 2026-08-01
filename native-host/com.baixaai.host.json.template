@@ -1,0 +1,9 @@
+{
+  "name": "com.baixaai.host",
+  "description": "BaixaAI native messaging host (yt-dlp + ffmpeg)",
+  "path": "__SCRIPT_PATH__",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://dflppeifdophmkfncbkkafpfnbnfhajp/"
+  ]
+}

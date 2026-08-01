@@ -1,0 +1,14 @@
+# Gerado pelo install.sh na máquina de cada usuário — caminhos absolutos
+# específicos da instalação, não deve ir pro repositório.
+native-host/paths.json
+native-host/run_host.sh
+native-host/run_host.bat
+
+# Lixo de metadados do macOS (comum em volumes externos/exFAT)
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Logs de execução do host nativo
+native-host/*.log

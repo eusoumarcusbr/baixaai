@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>BaixaAI</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <span class="dot"></span>
+      <h1>Baixa<span>AI</span></h1>
+    </header>
+
+    <p id="modeLabel" class="mode-label">Detectando o site...</p>
+    <p id="status" class="status">Buscando vídeos na página...</p>
+
+    <div id="video-list" class="video-list"></div>
+
+    <div class="field">
+      <label for="fitMode">Ajuste de proporção</label>
+      <select id="fitMode">
+        <option value="contain">Ajustar (mantém tudo, barras pretas)</option>
+        <option value="cover">Preencher (corta as bordas)</option>
+      </select>
+    </div>
+
+    <button id="downloadBtn" disabled>Baixar em Full HD</button>
+
+    <p id="hint" class="hint">
+      A gravação dura o mesmo tempo do vídeo. Você pode fechar este popup
+      depois de clicar — a aba continua gravando sozinha.
+    </p>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
