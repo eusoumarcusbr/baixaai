@@ -127,16 +127,25 @@ pela URL da aba ativa:
     pasta temporária. Testado de ponta a ponta (commit de teste + reset
     --hard) antes de confirmar como resolvido.
 
-11. **Token do GitHub nunca fica salvo em disco.** Pushes feitos por mim
-    (Claude, via Cowork) usam um Personal Access Token colado pelo usuário
-    na hora, embutido só temporariamente na URL do remote
-    (`git remote set-url`) e removido logo depois do push — nunca commitado
-    nem persistido em `.git/config`. Consequência prática: toda vez que o
-    push precisar ser feito a partir do Cowork (não do Terminal do Mac do
-    usuário), vou pedir um token novo, porque cada sessão começa sem
-    credenciais salvas. Se o usuário preferir não repetir isso, pode rodar
-    `git push` ele mesmo do Terminal do Mac — lá o `git-credential-osxkeychain`
-    (Keychain do macOS) guarda a credencial persistentemente depois da
+11. **Token do GitHub nunca vai pro repositório — mas fica salvo
+    localmente pra não pedir de novo a cada sessão.** Testei primeiro
+    `git config credential.helper "store --file=.git-credentials"` (arquivo
+    local, listado no `.gitignore`), mas o helper não pegou a credencial
+    (`fatal: could not read Username for 'https://github.com'`) — não
+    investiguei a fundo o motivo. Solução que funcionou: o token fica
+    embutido direto na URL do remote (`git remote set-url origin
+    https://<token>@github.com/...`), que é gravada em `.git/config` —
+    arquivo de metadados local do git, nunca enviado ao GitHub nem
+    versionado (diferente de `CONTEXTO.md`/qualquer arquivo do
+    repositório, que vai pro GitHub público). Importante: isso significa
+    que o token fica em texto puro em
+    `baixaai/.git/config` neste disco — não é um problema de vazamento
+    público, mas se algum dia zipar/enviar essa pasta inteira (incluindo
+    `.git/`) pra outro lugar, o token vai junto. Se quiser revogar, é em
+    https://github.com/settings/tokens. Se o usuário preferir não ter o
+    token salvo em lugar nenhum, pode rodar `git push` ele mesmo do
+    Terminal do Mac — lá o `git-credential-osxkeychain` (Keychain do
+    macOS) guarda a credencial persistentemente depois da
     primeira autenticação.
 
 ## Versionamento (Git/GitHub)
