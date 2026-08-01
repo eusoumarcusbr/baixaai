@@ -12,3 +12,7 @@ native-host/run_host.bat
 
 # Logs de execução do host nativo
 native-host/*.log
+
+# Credencial local do git (token do GitHub) — NUNCA deve ser versionada,
+# o repositório é público. Configurada via `git config credential.helper`.
+.git-credentials
