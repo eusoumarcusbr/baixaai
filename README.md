@@ -19,8 +19,9 @@ extensão (service worker) sozinho depois de um tempo, o que mataria um
 download longo no meio. Por isso o ajudante local dispara um **processo
 totalmente separado do Chrome** para baixar+normalizar — ele roda até o
 fim mesmo que você feche o popup ou o Chrome derrube a extensão. Quando
-terminar (ou der erro), você recebe uma **notificação nativa do macOS**.
-Na primeira vez, o macOS pode pedir permissão de notificação — autorize.
+terminar (ou der erro), você recebe uma notificação nativa (macOS: Central
+de Notificações; Windows: toast) **e** um som — se a notificação falhar
+por qualquer motivo, o som ainda avisa.
 
 ## Estrutura
 
@@ -29,8 +30,9 @@ baixaai/
   manifest.json, popup.*, content.js, background.js, icons/   → a extensão
   native-host/
     baixaai_host.py                → o ajudante local (native messaging host)
-    com.baixaai.host.json.template → registrado no Chrome pelo install.sh
+    com.baixaai.host.json.template → registrado no Chrome pelo install.sh/.ps1
     install.sh                     → instala tudo (macOS)
+    install.ps1                    → instala tudo (Windows)
 ```
 
 ## Instalação
@@ -42,6 +44,8 @@ baixaai/
 3. **Carregar sem compactação** → selecione a pasta `baixaai`.
 
 ### 2) Instalar o ajudante local (necessário para YouTube/Instagram/Globo)
+
+#### macOS
 
 Requer Python 3 e `pip3` (o macOS já vem com eles; se faltar, instale via
 `brew install python3` ou use o conda, se já tiver).
@@ -55,16 +59,39 @@ O script instala o `yt-dlp` (via `pip3 install --user`), confere/instala o
 `ffmpeg`, grava os caminhos absolutos encontrados (importante quando você
 usa conda/homebrew) e registra o host nativo no Chrome.
 
-Depois, **feche o Chrome completamente** (Chrome ▸ Sair do Google Chrome,
-não só a janela) e abra de novo — native messaging hosts só são lidos
-quando o Chrome inicia.
-
 > **Pasta em volume externo?** Se a pasta `baixaai` estiver num HD/SSD
 > externo (ex.: `/Volumes/...`), o Chrome pode ser bloqueado pelo macOS de
-> rodar processos ali. Se dois passos acima não funcionarem (erro "Native
+> rodar processos ali. Se os passos acima não funcionarem (erro "Native
 > host has exited" mesmo com tudo certo), mova pelo menos a pasta
 > `native-host` para dentro do seu diretório pessoal (`~`) e rode o
 > `install.sh` de lá.
+
+#### Windows
+
+Requer Python 3 (baixe em [python.org](https://www.python.org/downloads/) e
+marque **"Add python.exe to PATH"** na instalação, se ainda não tiver).
+
+Abra o **PowerShell** dentro da pasta `native-host` e rode:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+O script instala o `yt-dlp` (via `pip install --user`), instala `ffmpeg`
+e `deno` via `winget` (se disponível), grava os caminhos absolutos em
+`paths.json`, gera um `run_host.bat` (wrapper necessário porque o Chrome
+não executa `.py` diretamente) e registra o native messaging host no
+Registro do Windows (`HKCU\Software\Google\Chrome\NativeMessagingHosts`).
+
+> **Suporte a Windows é recente e ainda não foi validado numa máquina
+> Windows real** — só revisado com cuidado. Se algo falhar, o log fica em
+> `%USERPROFILE%\Downloads\BaixaAI\.logs\<job_id>.log` e ajuda bastante a
+> diagnosticar.
+
+Depois de instalar (em qualquer sistema), **feche o Chrome completamente**
+(não só a janela — no Windows, confira no Gerenciador de Tarefas se não
+sobrou nenhum processo `chrome.exe`) e abra de novo. Native messaging
+hosts só são lidos quando o Chrome inicia.
 
 ## Como usar
 
@@ -73,9 +100,9 @@ quando o Chrome inicia.
 2. Clique no ícone da extensão.
 3. Escolha o ajuste de proporção (barras pretas ou corte).
 4. Clique em **Baixar**. O popup confirma que o download começou em
-   segundo plano — pode fechar. Quando terminar, uma notificação do macOS
-   avisa, e o arquivo está em `~/Downloads/BaixaAI/`.
-5. Se algo der errado, o log fica em `~/Downloads/BaixaAI/.logs/<job_id>.log`.
+   segundo plano — pode fechar. Quando terminar, uma notificação e um som
+   avisam, e o arquivo está em `Downloads/BaixaAI/`.
+5. Se algo der errado, o log fica em `Downloads/BaixaAI/.logs/<job_id>.log`.
 
 ## Limitações e observações
 

@@ -242,20 +242,71 @@ def notify_mac(title, message, log=None):
             log(f"[BaixaAI] notify_mac exceção: {exc}")
 
 
-def play_sound(success, log=None):
-    # Toca um som do sistema diretamente (não passa pela Central de
-    # Notificações, então não é bloqueado por modos de Foco como o "Trabalho").
-    sound = "/System/Library/Sounds/Glass.aiff" if success else "/System/Library/Sounds/Basso.aiff"
+def notify_windows(title, message, log=None):
+    # Toast nativo do Windows 10/11 via PowerShell (WinRT). É best-effort,
+    # igual ao notify_mac: se falhar, só loga — quem garante o aviso de
+    # conclusão de verdade é o play_sound (winsound é builtin, sem
+    # dependência de permissão nenhuma, ao contrário de notificação).
+    ps_script = f"""
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+$xmlText = @"
+<toast><visual><binding template="ToastGeneric"><text>{title}</text><text>{message}</text></binding></visual></toast>
+"@
+$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+$xml.LoadXml($xmlText)
+$toast = New-Object Windows.UI.Notifications.ToastNotification $xml
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("BaixaAI").Show($toast)
+"""
     try:
         result = subprocess.run(
-            ["/usr/bin/afplay", sound], check=False,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+            check=False, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            timeout=15,
         )
         if result.returncode != 0 and log:
-            log(f"[BaixaAI] play_sound falhou (código {result.returncode}): {result.stdout.strip()}")
+            log(f"[BaixaAI] notify_windows falhou (código {result.returncode}): {result.stdout.strip()}")
     except Exception as exc:
         if log:
-            log(f"[BaixaAI] play_sound exceção: {exc}")
+            log(f"[BaixaAI] notify_windows exceção: {exc}")
+
+
+def notify(title, message, log=None):
+    if sys.platform == "darwin":
+        notify_mac(title, message, log=log)
+    elif sys.platform == "win32":
+        notify_windows(title, message, log=log)
+    # Linux: sem implementação ainda — só o log/som (se houver) avisa.
+
+
+def play_sound(success, log=None):
+    if sys.platform == "darwin":
+        # Toca um som do sistema diretamente (não passa pela Central de
+        # Notificações, então não é bloqueado por modos de Foco como o
+        # "Trabalho").
+        sound = "/System/Library/Sounds/Glass.aiff" if success else "/System/Library/Sounds/Basso.aiff"
+        try:
+            result = subprocess.run(
+                ["/usr/bin/afplay", sound], check=False,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            )
+            if result.returncode != 0 and log:
+                log(f"[BaixaAI] play_sound falhou (código {result.returncode}): {result.stdout.strip()}")
+        except Exception as exc:
+            if log:
+                log(f"[BaixaAI] play_sound exceção: {exc}")
+    elif sys.platform == "win32":
+        # winsound é builtin do Python no Windows (nenhuma dependência
+        # externa, ao contrário do afplay/osascript do macOS) — toca um som
+        # de sistema já registrado no Windows, sem precisar apontar pra um
+        # arquivo específico.
+        try:
+            import winsound
+            alias = "SystemAsterisk" if success else "SystemHand"
+            winsound.PlaySound(alias, winsound.SND_ALIAS)
+        except Exception as exc:
+            if log:
+                log(f"[BaixaAI] play_sound (winsound) exceção: {exc}")
 
 
 def run_worker(job_id, url, fit_mode):
@@ -273,11 +324,11 @@ def run_worker(job_id, url, fit_mode):
                 log("[BaixaAI] normalizando para Full HD...")
                 final_path = normalize_video(downloaded, fit_mode, log)
             log(f"[BaixaAI] concluído: {final_path}")
-            notify_mac("BaixaAI - download concluido", final_path.name, log=log)
+            notify("BaixaAI - download concluido", final_path.name, log=log)
             play_sound(success=True, log=log)
         except Exception as exc:  # noqa: BLE001
             log("[BaixaAI] ERRO: " + str(exc))
-            notify_mac("BaixaAI - erro no download", str(exc)[:200], log=log)
+            notify("BaixaAI - erro no download", str(exc)[:200], log=log)
             play_sound(success=False, log=log)
 
 
@@ -292,14 +343,22 @@ def handle_message(message):
             sys.executable, str(SCRIPT_PATH),
             "--worker", job_id, message["url"], message.get("fitMode", "contain"),
         ]
-        subprocess.Popen(
-            worker_cmd,
+        popen_kwargs = dict(
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,  # sobrevive mesmo se o Chrome matar este processo
             cwd=str(Path.home()),
         )
+        if sys.platform == "win32":
+            # Equivalente Windows do start_new_session=True do POSIX: o
+            # worker precisa sobreviver mesmo se o Chrome matar este
+            # processo/serviço de native messaging no meio de um download.
+            popen_kwargs["creationflags"] = (
+                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+            )
+        else:
+            popen_kwargs["start_new_session"] = True
+        subprocess.Popen(worker_cmd, **popen_kwargs)
         send_message({
             "type": "started",
             "job_id": job_id,

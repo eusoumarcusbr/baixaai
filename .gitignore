@@ -16,3 +16,6 @@ native-host/*.log
 # Credencial local do git (token do GitHub) — NUNCA deve ser versionada,
 # o repositório é público. Configurada via `git config credential.helper`.
 .git-credentials
+
+# Bytecode do Python (gerado ao validar sintaxe)
+native-host/__pycache__/

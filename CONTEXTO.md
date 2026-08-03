@@ -148,6 +148,33 @@ pela URL da aba ativa:
     macOS) guarda a credencial persistentemente depois da
     primeira autenticação.
 
+12. **Suporte a Windows implementado de verdade (antes só estava
+    documentado, não existia).** Descoberto ao revisar o projeto pra
+    montar um guia de instalação: o `install.ps1` citado no `README.md`/
+    `CONTEXTO.md` não existia, e `baixaai_host.py` não tinha nenhum código
+    específico de Windows (a notificação e o som eram só `osascript`/
+    `afplay`, que quebrariam em qualquer máquina Windows). Implementado:
+    - `native-host/install.ps1`: confere/instala Python, `yt-dlp` (pip
+      `--user`), `ffmpeg` e `deno` via `winget` (IDs confirmados:
+      `Gyan.FFmpeg`, `DenoLand.Deno`), grava `paths.json`, gera
+      `run_host.bat` (wrapper, já que o Chrome não roda `.py` direto no
+      Windows) e registra o native messaging host em
+      `HKCU\Software\Google\Chrome\NativeMessagingHosts\com.baixaai.host`
+      (no Windows não existe uma pasta fixa como no macOS — é sempre via
+      Registro).
+    - `baixaai_host.py`: `notify_mac`/`play_sound` viraram dispatchers
+      cross-platform (`notify()`/`play_sound()`) que checam `sys.platform`.
+      Windows usa `winsound.PlaySound` (builtin do Python, sem dependência
+      externa) pro som, e um toast nativo via PowerShell/WinRT
+      (best-effort, mesma filosofia da decisão #7: se a notificação
+      falhar, o som ainda avisa). As flags de processo desacoplado também
+      viraram condicionais: `CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS`
+      no Windows, `start_new_session=True` no POSIX.
+    - **Não testado numa máquina Windows real** (só revisado com cuidado,
+      sem ambiente Windows disponível pra rodar de ponta a ponta) — ao
+      contrário do macOS, que foi validado pelo usuário de verdade. Tratar
+      como implementação séria mas não comprovada.
+
 ## Versionamento (Git/GitHub)
 
 - Repositório remoto: https://github.com/eusoumarcusbr/baixaai (público).
@@ -201,15 +228,23 @@ Nesta ordem, ao longo do desenvolvimento:
     → token fine-grained tinha sido gerado sem nenhuma permissão de
     repositório marcada; corrigido adicionando "Contents: Read and write"
     nas permissões do token.
+14. Usuário pediu pra compartilhar a extensão com um amigo no Windows →
+    ao investigar pra fazer o guia de instalação, descoberto que o suporte
+    a Windows documentado nunca existiu de fato (decisão #12). Implementado
+    de verdade antes de gerar qualquer guia pra não distribuir algo
+    quebrado.
 
 ## Estado atual
 
 - **macOS**: testado de ponta a ponta pelo usuário (Marcus), funcionando
   pra YouTube e Instagram, com todos os fixes acima aplicados.
-- **Windows**: implementado (`install.ps1`, trechos cross-platform em
-  `baixaai_host.py`) mas **ainda não testado em máquina real** — só
-  validado sintaticamente. Se for testar, esperar precisar da mesma
-  rodada de ajustes que o macOS precisou (caminhos, permissões, etc.).
+- **Windows**: implementado de verdade em 03/08/2026 (`install.ps1` +
+  notificação/som/flags de processo cross-platform em `baixaai_host.py`,
+  decisão #12) — antes disso era só documentação sem código
+  correspondente. **Ainda não testado numa máquina Windows real.** Se for
+  testar, checar o log em `Downloads/BaixaAI/.logs/` se algo falhar, e
+  esperar precisar de mais uma rodada de ajustes (padrão do projeto: cada
+  SO novo sempre revela alguma coisa que só aparece rodando de verdade).
 - **Versionamento**: com backup no GitHub desde 01/08/2026
   (https://github.com/eusoumarcusbr/baixaai, branch `main`). Ver seção
   "Versionamento (Git/GitHub)" acima.
