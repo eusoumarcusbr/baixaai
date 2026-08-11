@@ -10,10 +10,11 @@ redescobrir tudo de novo.
 Extensão de Chrome (uso pessoal) com dois modos, escolhidos automaticamente
 pela URL da aba ativa:
 
-- **YouTube / Instagram / Globo** (`*.globo.com`: g1, ge, gshow, globoplay,
-  oglobo, redeglobo etc.) → baixa o arquivo de vídeo original de verdade
-  (via `yt-dlp` + `ffmpeg` rodando fora do Chrome), normalizado pra Full HD:
-  1920×1080 (16:9) horizontal ou 1080×1920 (9:16) vertical.
+- **YouTube / Instagram / Globo / Facebook** (`*.globo.com`: g1, ge, gshow,
+  globoplay, oglobo, redeglobo etc.; `facebook.com`/`fb.watch`, incluindo
+  reels) → baixa o arquivo de vídeo original de verdade (via `yt-dlp` +
+  `ffmpeg` rodando fora do Chrome), normalizado pra Full HD: 1920×1080
+  (16:9) horizontal ou 1080×1920 (9:16) vertical.
 - **Qualquer outro site** → grava a tela em tempo real (canvas +
   MediaRecorder), já que não dá pra extrair o arquivo original de forma
   confiável em sites genéricos.
@@ -175,6 +176,21 @@ pela URL da aba ativa:
       contrário do macOS, que foi validado pelo usuário de verdade. Tratar
       como implementação séria mas não comprovada.
 
+13. **Facebook entrou na allowlist de download direto do mesmo jeito que o
+    Globo — sem lógica nova no host nativo.** `isDirectDownloadSite()`
+    (`background.js`) agora aceita `facebook.com`, qualquer
+    `*.facebook.com` e o domínio curto `fb.watch` (usado em
+    compartilhamentos de reels). O yt-dlp já tem extractors nativos
+    (`FacebookIE`, `FacebookReelIE`, `FacebookPluginsVideoIE`) que cobrem
+    posts, `/videos/`, `/watch`, `/reel/`, grupos e o domínio onion — não
+    precisou mexer em `baixaai_host.py`, mesmo raciocínio da decisão #9.
+    Confirmado com `yt-dlp -j` numa URL `facebook.com/watch/?v=...`: o
+    extractor `[facebook]` reconheceu a URL (só não completou a extração
+    porque o proxy do sandbox bloqueia facebook.com — mesma limitação já
+    vista com o Globo, não é um problema do código). Muito conteúdo do
+    Facebook exige login — a mesma lógica de retry com/sem cookies do
+    Chrome (decisão #8) já cobre isso, sem precisar de nada extra.
+
 ## Versionamento (Git/GitHub)
 
 - Repositório remoto: https://github.com/eusoumarcusbr/baixaai (público).
@@ -233,6 +249,9 @@ Nesta ordem, ao longo do desenvolvimento:
     a Windows documentado nunca existiu de fato (decisão #12). Implementado
     de verdade antes de gerar qualquer guia pra não distribuir algo
     quebrado.
+15. Pedido de suporte a vídeos do Facebook → domínios `facebook.com`,
+    `*.facebook.com` e `fb.watch` adicionados à allowlist de download
+    direto, sem mudança no host nativo (decisão #13).
 
 ## Estado atual
 
