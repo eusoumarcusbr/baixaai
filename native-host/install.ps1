@@ -41,11 +41,15 @@ if (-not $PythonPath) {
 }
 Write-Host "    OK: $PythonPath"
 
-Write-Host "==> Verificando yt-dlp..."
+Write-Host "==> Instalando/atualizando yt-dlp (com o pacote yt-dlp-ejs)..."
+# Sempre roda o upgrade, mesmo se o yt-dlp já existir: o YouTube passou a
+# exigir um novo mecanismo de resolucao de desafio JS (EJS, ver
+# https://github.com/yt-dlp/yt-dlp/wiki/EJS) que substituiu o esquema
+# antigo baseado so no deno. O pacote com os scripts do EJS
+# (yt-dlp-ejs) so vem junto se pedirmos o extra "[default]".
+& $PythonPath -m pip install --user --upgrade "yt-dlp[default]"
 $YtdlpPath = Find-Command "yt-dlp"
 if (-not $YtdlpPath) {
-    Write-Host "    Instalando yt-dlp via pip (--user)..."
-    & $PythonPath -m pip install --user --upgrade yt-dlp
     # depois de instalar, o executável fica em
     # %APPDATA%\Python\PythonXY\Scripts — garante que está no PATH desta sessão
     $UserScripts = & $PythonPath -c "import site, os; print(os.path.normpath(os.path.join(site.getusersitepackages(), '..', 'Scripts')))"
@@ -56,9 +60,8 @@ if (-not $YtdlpPath) {
         Write-Host "    Abra um novo PowerShell e rode este script de novo."
         exit 1
     }
-} else {
-    Write-Host "    OK: $YtdlpPath"
 }
+Write-Host "    OK: $YtdlpPath"
 
 Write-Host "==> Verificando ffmpeg..."
 $FfmpegPath = Find-Command "ffmpeg"

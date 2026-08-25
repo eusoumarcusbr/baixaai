@@ -191,6 +191,41 @@ pela URL da aba ativa:
     Facebook exige login — a mesma lógica de retry com/sem cookies do
     Chrome (decisão #8) já cobre isso, sem precisar de nada extra.
 
+14. **yt-dlp precisa do extra `[default]` (pacote `yt-dlp-ejs`), não só
+    `--upgrade`.** O YouTube trocou o mecanismo de resolução de desafio JS
+    de "JSInterp/PhantomJS" (e do esquema antigo baseado só em rodar
+    `deno` com `--js-runtimes`) pro **EJS** (External JS Scripts, ver
+    https://github.com/yt-dlp/yt-dlp/wiki/EJS). O `deno` continua sendo o
+    runtime que executa os scripts, mas os scripts em si (pacote
+    `yt-dlp-ejs`) só vêm junto se o yt-dlp for instalado via
+    `pip install "yt-dlp[default]"` — um `pip install --upgrade yt-dlp`
+    normal NÃO inclui esse pacote. Sem ele, o log mostra "Remote
+    components challenge solver script (deno) ... were skipped", o
+    YouTube só libera formatos de imagem, e mesmo quando cai num client
+    alternativo (ex.: `android vr`) que não precisa do desafio, a URL
+    resultante costuma dar `HTTP Error 403: Forbidden` no meio do
+    download. `install.sh`/`install.ps1` foram ajustados pra sempre rodar
+    o upgrade com `[default]`, mesmo se o yt-dlp já estiver instalado
+    (antes, o script só instalava se `command -v yt-dlp` desse vazio —
+    instalações já existentes nunca ganhavam o extra novo até rodar o
+    install de novo manualmente).
+
+15. **`json.dumps` sem `ensure_ascii=False` quebra o `display notification`
+    do AppleScript.** Native da decisão #7 (som > notificação), mas o bug
+    de fundo nunca tinha sido isolado: o padrão do `json.dumps` escreve
+    acentos como `\uXXXX` (ex.: "não" vira `não`), e o AppleScript não
+    reconhece `\u` como escape válido dentro de um literal de string —
+    resultado: "syntax error: Esperava-se '"', encontrou-se token
+    desconhecido", a notificação falha, e sobra só o som pra avisar (que
+    funciona, mas sem nenhum texto legível do que deu errado). Corrigido
+    passando `ensure_ascii=False` nos dois `json.dumps` do `notify_mac`, e
+    colapsando quebras de linha da mensagem antes (evita jogar um log
+    multi-linha cru do yt-dlp dentro do `-e` do osascript). Mesma classe
+    de bug corrigida preventivamente no `notify_windows`: título/mensagem
+    agora passam por um escape de XML (`&`, `<`, `>`, `"`, `'`) antes de
+    entrar no `LoadXml`, já que aquele código ainda não tinha sido
+    validado numa máquina Windows real.
+
 ## Versionamento (Git/GitHub)
 
 - Repositório remoto: https://github.com/eusoumarcusbr/baixaai (público).
@@ -252,6 +287,16 @@ Nesta ordem, ao longo do desenvolvimento:
 15. Pedido de suporte a vídeos do Facebook → domínios `facebook.com`,
     `*.facebook.com` e `fb.watch` adicionados à allowlist de download
     direto, sem mudança no host nativo (decisão #13).
+16. YouTube parou de baixar (usuário reportou "só o som de erro", sem
+    nenhuma notificação visível) → log mostrou "Only images are available"
+    seguido de `HTTP Error 403: Forbidden` → causa raiz era o pacote
+    `yt-dlp-ejs` faltando (decisão #14), `install.sh`/`install.ps1`
+    corrigidos pra sempre reinstalar com `[default]`. De brinde, achado e
+    corrigido o motivo de nenhuma notificação aparecer: `json.dumps` sem
+    `ensure_ascii=False` gerando `\uXXXX` que o AppleScript não entende
+    (decisão #15) — o usuário precisa rodar `install.sh` de novo pra
+    aplicar o fix do yt-dlp-ejs (isso não dá pra fazer remotamente, o
+    script roda no Mac dele).
 
 ## Estado atual
 

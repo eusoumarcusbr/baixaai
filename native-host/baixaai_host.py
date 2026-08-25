@@ -229,7 +229,19 @@ def normalize_video(input_path, fit_mode, log):
 
 def notify_mac(title, message, log=None):
     try:
-        script = f'display notification {json.dumps(message)} with title {json.dumps(title)}'
+        # ensure_ascii=False é essencial aqui: o padrão do json.dumps
+        # converte acentos ("não", "vídeo"...) em escapes \uXXXX, e o
+        # AppleScript NÃO entende essa sintaxe de escape dentro de um
+        # literal de string — resultado: "syntax error: Esperava-se '"'"
+        # e a notificação falha silenciosamente (só o som toca). Colapsar
+        # quebras de linha também evita textos de log multi-linha crus
+        # (ex.: progresso do yt-dlp) quebrando o -e do osascript.
+        clean_message = " ".join(message.split())
+        clean_title = " ".join(title.split())
+        script = (
+            f'display notification {json.dumps(clean_message, ensure_ascii=False)} '
+            f'with title {json.dumps(clean_title, ensure_ascii=False)}'
+        )
         env = {**os.environ, "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"}
         result = subprocess.run(
             ["/usr/bin/osascript", "-e", script], check=False,
@@ -247,11 +259,25 @@ def notify_windows(title, message, log=None):
     # igual ao notify_mac: se falhar, só loga — quem garante o aviso de
     # conclusão de verdade é o play_sound (winsound é builtin, sem
     # dependência de permissão nenhuma, ao contrário de notificação).
+    #
+    # title/message viram texto dentro de um XML — sem escapar, caracteres
+    # como & < > " quebrariam o LoadXml (mesma classe de bug do
+    # notify_mac com AppleScript). Também colapsa quebras de linha, já que
+    # o texto pode vir de um log multi-linha do yt-dlp.
+    def xml_escape(text):
+        text = " ".join(text.split())
+        return (
+            text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            .replace('"', "&quot;").replace("'", "&apos;")
+        )
+
+    safe_title = xml_escape(title)
+    safe_message = xml_escape(message)
     ps_script = f"""
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
 [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
 $xmlText = @"
-<toast><visual><binding template="ToastGeneric"><text>{title}</text><text>{message}</text></binding></visual></toast>
+<toast><visual><binding template="ToastGeneric"><text>{safe_title}</text><text>{safe_message}</text></binding></visual></toast>
 "@
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
 $xml.LoadXml($xmlText)

@@ -14,13 +14,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST_SCRIPT="$SCRIPT_DIR/baixaai_host.py"
 CHROME_NMH_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 
-echo "==> Verificando yt-dlp..."
-if ! command -v yt-dlp >/dev/null 2>&1; then
-  echo "    Instalando yt-dlp via pip3 (--user)..."
-  pip3 install --user --upgrade yt-dlp
-else
-  echo "    OK: $(yt-dlp --version)"
-fi
+echo "==> Instalando/atualizando yt-dlp (com o pacote yt-dlp-ejs)..."
+# Sempre roda o upgrade, mesmo se o yt-dlp já existir: o YouTube passou a
+# exigir um novo mecanismo de resolução de desafio JS (EJS, ver
+# https://github.com/yt-dlp/yt-dlp/wiki/EJS) que substituiu o esquema
+# antigo baseado só no deno. O pacote com os scripts do EJS
+# (`yt-dlp-ejs`) só vem junto se pedirmos o extra "[default]" — instalação
+# feita antes dessa mudança (ou um "pip install yt-dlp" simples) não tem
+# esse pacote, e por isso os downloads do YouTube passam a falhar (fica
+# só em "imagens disponíveis" ou cai num formato que dá 403 no meio do
+# download).
+pip3 install --user --upgrade "yt-dlp[default]"
+echo "    OK: $(yt-dlp --version)"
 
 echo "==> Verificando ffmpeg..."
 if ! command -v ffmpeg >/dev/null 2>&1; then

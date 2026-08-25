@@ -128,8 +128,19 @@ hosts só são lidos quando o Chrome inicia.
 - O modo de **captura de tela** (sites genéricos) grava em tempo real —
   um vídeo de 10 minutos leva 10 minutos pra gravar.
 - yt-dlp muda com frequência para acompanhar mudanças das plataformas.
-  Se algo parar de funcionar, rode `pip3 install --user --upgrade yt-dlp`
-  (ou o equivalente via conda, se foi por ali que instalou).
+  Se algo parar de funcionar, rode `pip3 install --user --upgrade "yt-dlp[default]"`
+  no macOS ou `python -m pip install --user --upgrade "yt-dlp[default]"` no
+  Windows (ou o equivalente via conda, se foi por ali que instalou) — o
+  `[default]` é importante, não só o `--upgrade` (ver observação sobre o
+  YouTube logo abaixo).
+- **YouTube parou de baixar (só imagens/thumbnail, ou erro 403 no meio do
+  download)**: o YouTube exige um mecanismo de resolução de desafio
+  JavaScript chamado EJS (substituiu o esquema antigo baseado só no
+  `deno`). O pacote com os scripts do EJS (`yt-dlp-ejs`) só é instalado
+  junto se o yt-dlp for instalado/atualizado com o extra `[default]`
+  (comando acima). Rode `bash native-host/install.sh` (ou o `install.ps1`
+  no Windows) de novo pra aplicar — o script sempre reinstala o yt-dlp com
+  esse extra agora, mesmo se já estiver instalado.
 
 ## Sobre Termos de Uso
 
