@@ -19,6 +19,32 @@ pela URL da aba ativa:
   MediaRecorder), já que não dá pra extrair o arquivo original de forma
   confiável em sites genéricos.
 
+## ⚠️ Duas pastas diferentes no macOS do Marcus — não esquecer
+
+Existem **duas cópias** do `native-host` no Mac do usuário, e elas NÃO se
+atualizam sozinhas uma pela outra:
+
+1. **`/Volumes/SSD_NVME/AgentesIA/BaixarVideos/baixaai/native-host/`** — a
+   pasta versionada, ligada ao git/GitHub. É nela que eu (Claude) edito o
+   código por padrão nas conversas.
+2. **`~/baixaai-native-host/`** (`/Users/eusoumarcus/baixaai-native-host/`)
+   — a pasta que o Chrome **de fato usa** pra rodar o native messaging
+   host. Foi criada bem no início do projeto (histórico #4) porque o
+   Chrome bloqueia rodar processos a partir de um volume externo — só
+   `native-host` foi movido pra cá, o resto da extensão (`manifest.json`,
+   `background.js` etc.) continua sendo carregado do SSD via "Carregar sem
+   compactação".
+
+**Toda mudança em `baixaai_host.py`, `install.sh`/`install.ps1` ou
+`com.baixaai.host.json.template` precisa ser copiada manualmente pras duas
+pastas.** Já aconteceu de várias correções (Windows, Facebook, fix do
+YouTube/EJS, fix da notificação) ficarem só na pasta versionada por
+semanas sem chegar na pasta que o Chrome usa de verdade — isso é o que
+causou o download parar de funcionar sem nenhuma mudança óbvia de causa
+(ver histórico #17). Sempre confirmar com
+`diff ~/baixaai-native-host/baixaai_host.py <caminho-do-SSD>/native-host/baixaai_host.py`
+depois de qualquer alteração nessa área.
+
 ## Arquitetura
 
 ### Extensão (roda dentro do Chrome)
@@ -255,7 +281,9 @@ Nesta ordem, ao longo do desenvolvimento:
 4. "Native host has exited" mesmo com tudo certo → pasta da extensão
    estava num volume externo (`/Volumes/...`), o macOS bloqueia o Chrome
    de rodar processos ali; resolvido movendo o `native-host` pra dentro do
-   diretório do usuário.
+   diretório do usuário, em `~/baixaai-native-host/` (caminho exato
+   redescoberto no histórico #17 — ver aviso no topo do documento sobre as
+   duas pastas).
 5. Download travava/zerava no meio (MV3 mata o service worker) → worker
    desacoplado (decisão de design #1).
 6. Vídeo sem áudio → `--ffmpeg-location` (decisão #3).
@@ -297,6 +325,19 @@ Nesta ordem, ao longo do desenvolvimento:
     (decisão #15) — o usuário precisa rodar `install.sh` de novo pra
     aplicar o fix do yt-dlp-ejs (isso não dá pra fazer remotamente, o
     script roda no Mac dele).
+17. Ao tentar aplicar o fix acima, o usuário rodou `install.sh` no caminho
+    que eu sugeri (`~/Documents/baixaai-main/native-host`) e deu
+    "No such file or directory" — esse caminho nunca existiu de verdade,
+    era só um placeholder do guia de instalação genérico. Descoberto o
+    caminho real lendo o manifesto já registrado no Chrome (`cat
+    ~/Library/Application\ Support/Google/Chrome/NativeMessagingHosts/com.baixaai.host.json`),
+    que apontava pra `~/baixaai-native-host/run_host.sh`. Comparando essa
+    pasta com a versionada no SSD, ela estava parada em 13/jul — sem
+    NENHUMA correção feita depois disso (Windows, Facebook, fix do
+    YouTube/EJS, fix da notificação). Copiados `baixaai_host.py` e
+    `install.sh` corrigidos pra lá. Ver aviso no topo do documento — essa
+    divergência entre as duas pastas provavelmente é a causa real por
+    trás de vários "parou de funcionar do nada" ao longo do projeto.
 
 ## Estado atual
 
