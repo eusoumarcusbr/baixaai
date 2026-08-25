@@ -252,6 +252,27 @@ depois de qualquer alteração nessa área.
     entrar no `LoadXml`, já que aquele código ainda não tinha sido
     validado numa máquina Windows real.
 
+16. **Barra de progresso no popup lendo o log do job, sem conexão viva com
+    o worker.** O worker do download roda totalmente desacoplado do Chrome
+    (decisão #1) — quando ele termina de responder "started", a porta de
+    native messaging é fechada (`port.disconnect()` em `background.js`) e
+    não há mais nenhum canal pra empurrar progresso em tempo real. Em vez
+    de reabrir uma conexão persistente (o que reintroduziria o problema
+    original do service worker do MV3 poder ser encerrado pelo Chrome no
+    meio do caminho), o popup faz *polling*: a cada 1.5s, manda uma
+    mensagem nova e curta (`{"type": "status", "job_id": ...}`) pro host
+    nativo, que abre o log do job (`~/Downloads/BaixaAI/.logs/<job_id>.log`
+    — o mesmo arquivo que o worker já escreve) e devolve o estado mais
+    recente (parseando a última linha `[download] X% of Y at Z ETA W` que
+    o yt-dlp já imprime com `--newline`). Como o job_id fica salvo em
+    `chrome.storage.local`, fechar e reabrir o popup não perde o progresso
+    — ele volta a consultar o mesmo job. Estados possíveis: `starting`
+    (ainda extraindo cookies/resolvendo a página), `downloading` (com %,
+    velocidade, ETA e tamanho total), `processing` (fase do ffmpeg, sem %
+    disponível, barra fica com animação indeterminada), `done` e `error`
+    (lidos das linhas `[BaixaAI] concluído: ...` / `[BaixaAI] ERRO: ...`
+    que o worker já grava).
+
 ## Versionamento (Git/GitHub)
 
 - Repositório remoto: https://github.com/eusoumarcusbr/baixaai (público).
@@ -338,11 +359,23 @@ Nesta ordem, ao longo do desenvolvimento:
     `install.sh` corrigidos pra lá. Ver aviso no topo do documento — essa
     divergência entre as duas pastas provavelmente é a causa real por
     trás de vários "parou de funcionar do nada" ao longo do projeto.
+18. Depois do fix do YouTube, usuário testou e achou que "não tinha
+    acontecido nada" ao clicar em baixar — na real o download estava
+    rodando normalmente (confirmado lendo o log em tempo real, já em
+    ~90%), só que um vídeo de 655 MB demora minutos e o popup não mostra
+    nenhum progresso. Pedido de feedback visual → implementada barra de
+    progresso por polling no log (decisão #16). Precisa recarregar a
+    extensão em `chrome://extensions` pra pegar essa mudança (mexeu em
+    `background.js`/`popup.js`/`popup.html`/`popup.css`, não só no host
+    nativo) — não precisa rodar `install.sh` de novo (nenhuma dependência
+    nova).
 
 ## Estado atual
 
 - **macOS**: testado de ponta a ponta pelo usuário (Marcus), funcionando
-  pra YouTube e Instagram, com todos os fixes acima aplicados.
+  pra YouTube e Instagram, com todos os fixes acima aplicados. Popup ganhou
+  barra de progresso (decisão #16, 25/08/2026) — usuário precisa recarregar
+  a extensão em `chrome://extensions` pra ver a mudança.
 - **Windows**: implementado de verdade em 03/08/2026 (`install.ps1` +
   notificação/som/flags de processo cross-platform em `baixaai_host.py`,
   decisão #12) — antes disso era só documentação sem código

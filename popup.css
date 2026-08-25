@@ -63,6 +63,49 @@ h1 span {
   margin: 0 0 10px;
 }
 
+.progress-wrap {
+  margin: 0 0 12px;
+}
+
+.progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.progress-bar.indeterminate {
+  width: 100% !important;
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--accent),
+    var(--accent) 10px,
+    var(--accent-hover) 10px,
+    var(--accent-hover) 20px
+  );
+  background-size: 200% 100%;
+  animation: progress-stripes 1s linear infinite;
+}
+
+@keyframes progress-stripes {
+  from { background-position: 0 0; }
+  to { background-position: 28px 0; }
+}
+
+.progress-text {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 6px 0 0;
+}
+
 .video-list {
   display: flex;
   flex-direction: column;

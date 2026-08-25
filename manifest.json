@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "BaixaAI",
-  "version": "2.3.0",
-  "description": "Baixa o vídeo original do YouTube/Instagram/Globo/Facebook (via um ajudante local) ou grava a tela em outros sites, normalizando para Full HD 16:9/9:16.",
+  "version": "2.4.0",
+  "description": "Baixa o vídeo original do YouTube/Instagram/Globo/Facebook (via um ajudante local, com barra de progresso) ou grava a tela em outros sites, normalizando para Full HD 16:9/9:16.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1yK/DNKCfMqP5YviItHdpXovkZisrVJ1X5VdocWZtp8S2YMjFQjbvbfThdcWkg57/Q7Ye+YZ89xNSGpqMMmLBOVY8EZrnhD8IsW6e0nOnsMLo//KMxj4H3oqvzjQQd61YXacVQzgyjoVd7hMVN0EXjPHgDm9jpGx7cyYxyDEVHzJRIbXQKTlIGS/WSdzbIpCiIQbEa6ISJWZzAiAibIOitLT6KapzwGU6VzqC1xu2fD7VLZOwwwtTWFlZw2dluterIOUHtNWk0Ab1C5GNv3hwxRZJNAH1E3AvypjTaQn644UMnweL3IFDDwRDDv3YzaJ+Guqblh0izen5qvpBecVOwIDAQAB",
   "permissions": [
     "storage",

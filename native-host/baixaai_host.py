@@ -10,6 +10,12 @@ Modo normal (chamado pelo Chrome via native messaging):
   extensão (e a conexão nativa junto) no meio de um download longo — o
   trabalho real não pode depender de o Chrome continuar vivo.
 
+  Também recebe {"type": "status", "job_id": "..."} — usado pelo popup pra
+  mostrar uma barra de progresso. Não fala com o worker em execução (não há
+  conexão viva com ele); em vez disso lê o log que o worker já escreve em
+  disco e devolve o estado mais recente (percentual do yt-dlp, "processando"
+  durante o ffmpeg, "concluído" ou "erro").
+
 Modo worker (--worker <job_id> <url> <fitMode>):
   Roda de fato o yt-dlp + ffmpeg, grava um log e dispara uma notificação
   nativa do macOS (via osascript) quando termina — com sucesso ou erro.
@@ -335,6 +341,69 @@ def play_sound(success, log=None):
                 log(f"[BaixaAI] play_sound (winsound) exceção: {exc}")
 
 
+STATUS_ERROR_RE = re.compile(r"^\[BaixaAI\] ERRO: (.+)$")
+STATUS_DONE_RE = re.compile(r"^\[BaixaAI\] concluído: (.+)$")
+STATUS_PROCESSING_MARKER = "[BaixaAI] normalizando para Full HD"
+PROGRESS_RE = re.compile(
+    # O "at" pode vir como "537.59KiB/s" (um token) ou "Unknown B/s" (dois
+    # tokens, quando o yt-dlp momentaneamente não sabe a velocidade) — por
+    # isso ".+?" em vez de "\S+" nesse grupo.
+    r"^\[download\]\s+([\d.]+)%\s+of\s+(\S+)\s+at\s+(.+?)\s+ETA\s+(\S+)"
+)
+
+
+def get_job_status(job_id):
+    """Lê o log de um job (escrito pelo worker desacoplado) e resume o estado
+    atual pro popup mostrar uma barra de progresso — sem precisar manter
+    nenhuma conexão viva com o processo real, que já roda fora do Chrome."""
+    log_path = LOG_DIR / f"{job_id}.log"
+    if not log_path.exists():
+        return {"state": "unknown"}
+
+    last_progress = None
+    processing = False
+    done_name = None
+    error_msg = None
+
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+            for raw_line in f:
+                line = raw_line.rstrip("\n")
+                m = STATUS_ERROR_RE.match(line)
+                if m:
+                    error_msg = m.group(1)
+                    continue
+                m = STATUS_DONE_RE.match(line)
+                if m:
+                    done_name = Path(m.group(1)).name
+                    continue
+                if STATUS_PROCESSING_MARKER in line:
+                    processing = True
+                    continue
+                m = PROGRESS_RE.match(line)
+                if m:
+                    last_progress = {
+                        "percent": float(m.group(1)),
+                        "total": m.group(2),
+                        "speed": m.group(3),
+                        "eta": m.group(4),
+                    }
+    except Exception as exc:
+        return {"state": "unknown", "message": str(exc)}
+
+    # Prioridade: erro/concluído (estados finais) > processando (ffmpeg,
+    # sem % disponível) > baixando (tem % do yt-dlp) > só começou.
+    if error_msg is not None:
+        return {"state": "error", "message": error_msg}
+    if done_name is not None:
+        return {"state": "done", "message": done_name}
+    if processing:
+        return {"state": "processing"}
+    if last_progress is not None:
+        return {"state": "downloading", **last_progress}
+    return {"state": "starting"}
+
+
 def run_worker(job_id, url, fit_mode):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_path = LOG_DIR / f"{job_id}.log"
@@ -363,6 +432,11 @@ def run_worker(job_id, url, fit_mode):
 # ---------------------------------------------------------------------
 
 def handle_message(message):
+    if message.get("type") == "status":
+        status = get_job_status(message.get("job_id", ""))
+        send_message({"type": "status", **status})
+        return
+
     if message.get("type") == "download":
         job_id = uuid.uuid4().hex[:10]
         worker_cmd = [

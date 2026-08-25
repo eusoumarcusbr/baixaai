@@ -4,11 +4,91 @@ const btn = document.getElementById('downloadBtn');
 const fitModeEl = document.getElementById('fitMode');
 const modeLabelEl = document.getElementById('modeLabel');
 const hintEl = document.getElementById('hint');
+const progressWrap = document.getElementById('progressWrap');
+const progressBar = document.getElementById('progressBar');
+const progressText = document.getElementById('progressText');
 
 let currentTabId = null;
 let currentTabUrl = null;
 let selectedIndex = 0;
 let directDownloadMode = false;
+let pollTimer = null;
+
+// ---------------------------------------------------------------------
+// Progresso do download (modo direto YouTube/Instagram/Globo/Facebook).
+// O download roda fora do Chrome, então não há "push" de progresso — o
+// popup pergunta periodicamente ao ajudante local (que lê o log do job em
+// disco) enquanto estiver aberto. O job em andamento fica salvo no
+// chrome.storage.local pra sobreviver a fechar/reabrir o popup.
+// ---------------------------------------------------------------------
+
+const LAST_JOB_KEY = 'lastJob';
+const LAST_JOB_MAX_AGE_MS = 3 * 60 * 60 * 1000; // 3h — depois disso, ignora
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+function renderStatus(status) {
+  if (!status || status.state === 'unknown') {
+    progressWrap.hidden = true;
+    progressBar.classList.remove('indeterminate');
+    stopPolling();
+    return;
+  }
+
+  progressWrap.hidden = false;
+
+  if (status.state === 'starting') {
+    progressBar.classList.remove('indeterminate');
+    progressBar.style.width = '4%';
+    progressText.textContent = 'Iniciando (extraindo cookies, abrindo a página)...';
+  } else if (status.state === 'downloading') {
+    progressBar.classList.remove('indeterminate');
+    progressBar.style.width = status.percent + '%';
+    progressText.textContent =
+      `${status.percent.toFixed(1)}% · ${status.speed} · ETA ${status.eta} · ${status.total}`;
+  } else if (status.state === 'processing') {
+    progressBar.classList.add('indeterminate');
+    progressText.textContent = 'Convertendo para Full HD (ffmpeg)...';
+  } else if (status.state === 'done') {
+    progressBar.classList.remove('indeterminate');
+    progressBar.style.width = '100%';
+    progressText.textContent = 'Concluído: ' + status.message;
+    stopPolling();
+    chrome.storage.local.remove(LAST_JOB_KEY);
+  } else if (status.state === 'error') {
+    progressBar.classList.remove('indeterminate');
+    progressText.textContent = 'Erro: ' + status.message;
+    stopPolling();
+    chrome.storage.local.remove(LAST_JOB_KEY);
+  }
+}
+
+function pollStatus(jobId) {
+  chrome.runtime.sendMessage({ type: 'GET_STATUS', jobId }, renderStatus);
+}
+
+function startPolling(jobId) {
+  stopPolling();
+  pollStatus(jobId);
+  pollTimer = setInterval(() => pollStatus(jobId), 1500);
+}
+
+function checkLastJob() {
+  chrome.storage.local.get([LAST_JOB_KEY], (res) => {
+    const job = res[LAST_JOB_KEY];
+    if (!job) return;
+    if (Date.now() - job.startedAt > LAST_JOB_MAX_AGE_MS) {
+      chrome.storage.local.remove(LAST_JOB_KEY);
+      return;
+    }
+    startPolling(job.jobId);
+  });
+}
 
 chrome.storage.sync.get(['fitMode'], (res) => {
   if (res.fitMode) fitModeEl.value = res.fitMode;
@@ -48,6 +128,8 @@ function sendToContent(tabId, message) {
 }
 
 async function init() {
+  checkLastJob(); // independe da aba atual — um download pode estar rodando em segundo plano
+
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   currentTabId = tab.id;
   currentTabUrl = tab.url;
@@ -127,10 +209,14 @@ btn.addEventListener('click', () => {
         if (response && response.ok) {
           statusEl.textContent =
             'Baixando em segundo plano — pode fechar este popup. ' +
-            'Uma notificação do macOS avisa quando terminar (arquivo em ' +
-            response.outputDir + ').';
+            'Uma notificação avisa quando terminar (arquivo em ' +
+            response.outputDir + '). Acompanhe o progresso abaixo:';
           btn.disabled = false;
           btn.textContent = 'Iniciado ✔ (baixar de novo)';
+          chrome.storage.local.set({
+            lastJob: { jobId: response.jobId, outputDir: response.outputDir, startedAt: Date.now() },
+          });
+          startPolling(response.jobId);
         } else {
           statusEl.textContent = 'Erro: ' + (response ? response.error : 'desconhecido');
           btn.disabled = false;

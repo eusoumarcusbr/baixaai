@@ -95,5 +95,39 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // resposta assíncrona
   }
 
+  if (msg.type === 'GET_STATUS') {
+    // Consulta rápida e sem estado: abre uma conexão nova com o ajudante
+    // local só pra ele ler o log do job em disco e devolver o progresso —
+    // não há conexão viva com o worker desacoplado, então isso é seguro de
+    // chamar em polling (ex.: a cada 1.5s enquanto o popup estiver aberto).
+    let port;
+    try {
+      port = chrome.runtime.connectNative(NATIVE_HOST);
+    } catch (e) {
+      sendResponse({ state: 'unknown' });
+      return true;
+    }
+
+    let answered = false;
+
+    port.onMessage.addListener((response) => {
+      if (answered) return;
+      answered = true;
+      sendResponse(response);
+      port.disconnect();
+    });
+
+    port.onDisconnect.addListener(() => {
+      if (!answered) {
+        answered = true;
+        sendResponse({ state: 'unknown' });
+      }
+    });
+
+    port.postMessage({ type: 'status', job_id: msg.jobId });
+
+    return true; // resposta assíncrona
+  }
+
   return undefined;
 });
