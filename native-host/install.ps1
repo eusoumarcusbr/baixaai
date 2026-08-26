@@ -64,13 +64,31 @@ if (-not $YtdlpPath) {
 Write-Host "    OK: $YtdlpPath"
 
 Write-Host "==> Verificando ffmpeg..."
+# Precisa decodificar AV1: Facebook/Instagram/TikTok às vezes só oferecem
+# esse codec pra um vídeo, e sem o decoder o ffmpeg falha ao normalizar pra
+# Full HD com "Decoder (codec av1) not found" (mesmo bug já visto e
+# corrigido no macOS, ver decisão #18 do CONTEXTO.md). O build "Gyan.FFmpeg"
+# instalado abaixo já inclui o decoder (libdav1d), mas se o usuário já
+# tiver um ffmpeg mais antigo no PATH, essa checagem detecta e reinstala.
 $FfmpegPath = Find-Command "ffmpeg"
 $FfprobePath = Find-Command "ffprobe"
+$NeedsInstall = $false
 if (-not $FfmpegPath) {
     Write-Host "    ffmpeg não encontrado."
+    $NeedsInstall = $true
+} else {
+    $Decoders = & $FfmpegPath -decoders 2>$null | Out-String
+    if ($Decoders -notmatch "(?i)av1") {
+        Write-Host "    $FfmpegPath não decodifica AV1 (usado por alguns vídeos do Facebook/Instagram/TikTok)."
+        $NeedsInstall = $true
+    } else {
+        Write-Host "    OK: $FfmpegPath (com suporte a AV1)"
+    }
+}
+if ($NeedsInstall) {
     $winget = Find-Command "winget"
     if ($winget) {
-        Write-Host "    Instalando com winget..."
+        Write-Host "    Instalando/atualizando ffmpeg com winget..."
         winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements
         # winget instala num local próprio; precisa de um PowerShell novo
         # pra herdar o PATH atualizado — orienta o usuário nesse caso.
@@ -82,11 +100,10 @@ if (-not $FfmpegPath) {
         }
     } else {
         Write-Host "    winget não disponível. Baixe manualmente em https://www.gyan.dev/ffmpeg/builds/"
-        Write-Host "    descompacte, adicione a pasta 'bin' ao PATH do Windows, e rode este script de novo."
-        exit 1
+        Write-Host "    (build 'full', que inclui o decoder AV1) descompacte, adicione a pasta"
+        Write-Host "    'bin' ao PATH do Windows, e rode este script de novo."
+        if (-not $FfmpegPath) { exit 1 }
     }
-} else {
-    Write-Host "    OK: $FfmpegPath"
 }
 if (-not $FfprobePath) { $FfprobePath = Find-Command "ffprobe" }
 

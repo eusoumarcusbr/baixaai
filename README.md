@@ -89,6 +89,13 @@ Registro do Windows (`HKCU\Software\Google\Chrome\NativeMessagingHosts`).
 > `%USERPROFILE%\Downloads\BaixaAI\.logs\<job_id>.log` e ajuda bastante a
 > diagnosticar.
 
+> **Nada acontece ao clicar em "Baixar"?** No modo YouTube/Instagram/
+> Globo/Facebook/TikTok o download roda em segundo plano, fora do Chrome —
+> sem notificação nenhuma, pode parecer que travou mesmo estando
+> progredindo normalmente (arquivos grandes demoram). O popup mostra uma
+> barra de progresso com %/velocidade/ETA em tempo real; se ela não
+> aparecer, feche e reabra o popup.
+
 Depois de instalar (em qualquer sistema), **feche o Chrome completamente**
 (não só a janela — no Windows, confira no Gerenciador de Tarefas se não
 sobrou nenhum processo `chrome.exe`) e abra de novo. Native messaging
