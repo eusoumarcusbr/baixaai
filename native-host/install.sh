@@ -28,18 +28,42 @@ pip3 install --user --upgrade "yt-dlp[default]"
 echo "    OK: $(yt-dlp --version)"
 
 echo "==> Verificando ffmpeg..."
-if ! command -v ffmpeg >/dev/null 2>&1; then
+# Prefere o ffmpeg do Homebrew (que inclui o decoder AV1 via libdav1d) em vez
+# do que vier primeiro no PATH (ex.: o do conda, que em builds antigas não
+# decodifica AV1). Facebook/Instagram às vezes só oferecem AV1 pra um vídeo,
+# e sem esse decoder o ffmpeg falha ao normalizar pra Full HD com "Decoder
+# (codec av1) not found". Isso já causou esse bug uma vez — essa checagem
+# evita que uma reinstalação futura regrida pro mesmo problema.
+FFMPEG_PATH=""
+for candidate in "/opt/homebrew/bin/ffmpeg" "/usr/local/bin/ffmpeg" "$(command -v ffmpeg 2>/dev/null || true)"; do
+  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+    FFMPEG_PATH="$candidate"
+    break
+  fi
+done
+
+if [ -z "$FFMPEG_PATH" ]; then
   echo "    ffmpeg não encontrado."
   if command -v brew >/dev/null 2>&1; then
     echo "    Instalando com Homebrew..."
     brew install ffmpeg
+    FFMPEG_PATH="$(brew --prefix)/bin/ffmpeg"
   else
     echo "    Instale manualmente (ex.: 'brew install ffmpeg') e rode este script de novo."
     exit 1
   fi
-else
-  echo "    OK: $(ffmpeg -version | head -n1)"
+elif ! "$FFMPEG_PATH" -decoders 2>/dev/null | grep -qi "av1"; then
+  echo "    $FFMPEG_PATH não decodifica AV1 (usado por alguns vídeos do Facebook/Instagram)."
+  if command -v brew >/dev/null 2>&1; then
+    echo "    Instalando ffmpeg do Homebrew (com suporte a AV1)..."
+    brew install ffmpeg
+    FFMPEG_PATH="$(brew --prefix)/bin/ffmpeg"
+  else
+    echo "    Aviso: seguindo com $FFMPEG_PATH mesmo assim — instale o Homebrew"
+    echo "    e rode 'brew install ffmpeg' pra suporte completo a AV1."
+  fi
 fi
+echo "    OK: $("$FFMPEG_PATH" -version | head -n1)"
 
 echo "==> Verificando deno (necessário pro yt-dlp resolver o desafio JS do YouTube)..."
 if ! command -v deno >/dev/null 2>&1; then
@@ -61,8 +85,10 @@ fi
 
 echo "==> Gravando caminhos absolutos (o Chrome não carrega seu .zshrc/conda)..."
 YTDLP_PATH="$(command -v yt-dlp)"
-FFMPEG_PATH="$(command -v ffmpeg)"
-FFPROBE_PATH="$(command -v ffprobe)"
+FFPROBE_PATH="$(dirname "$FFMPEG_PATH")/ffprobe"
+if [ ! -x "$FFPROBE_PATH" ]; then
+  FFPROBE_PATH="$(command -v ffprobe)"
+fi
 DENO_PATH="$(command -v deno)"
 cat > "$SCRIPT_DIR/paths.json" << PATHSEOF
 {
