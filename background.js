@@ -2,7 +2,7 @@
 // Faz a ponte entre o popup, o content script (fallback de captura de tela)
 // e o host nativo `baixaai_host.py`.
 //
-// Importante: para YouTube/Instagram/Globo/Facebook, o host nativo só
+// Importante: para YouTube/Instagram/Globo/Facebook/TikTok, o host nativo só
 // dispara um processo desacoplado (imune ao service worker ser encerrado
 // pelo Chrome) e responde "started" na hora — o download em si roda fora
 // do Chrome, e o aviso de conclusão chega por notificação nativa do macOS.
@@ -31,7 +31,12 @@ function isDirectDownloadSite(url) {
       // do Globo: só precisa entrar na allowlist.
       host === 'facebook.com' ||
       host.endsWith('.facebook.com') ||
-      host === 'fb.watch'
+      host === 'fb.watch' ||
+      // TikTok (vídeos, fotos e os links curtos vm./vt.tiktok.com de
+      // compartilhamento) — o yt-dlp tem extractor nativo (TikTokIE), então
+      // é só entrar na allowlist, igual Globo/Facebook.
+      host === 'tiktok.com' ||
+      host.endsWith('.tiktok.com')
     );
   } catch (e) {
     return false;

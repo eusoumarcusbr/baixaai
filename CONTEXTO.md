@@ -19,31 +19,40 @@ pela URL da aba ativa:
   MediaRecorder), já que não dá pra extrair o arquivo original de forma
   confiável em sites genéricos.
 
-## ⚠️ Duas pastas diferentes no macOS do Marcus — não esquecer
+## ⚠️ Três pastas diferentes no macOS do Marcus — não esquecer
 
-Existem **duas cópias** do `native-host` no Mac do usuário, e elas NÃO se
-atualizam sozinhas uma pela outra:
+Existem **três cópias** do projeto no Mac do usuário, e elas NÃO se
+atualizam sozinhas umas pelas outras:
 
-1. **`/Volumes/SSD_NVME/AgentesIA/BaixarVideos/baixaai/native-host/`** — a
-   pasta versionada, ligada ao git/GitHub. É nela que eu (Claude) edito o
-   código por padrão nas conversas.
-2. **`~/baixaai-native-host/`** (`/Users/eusoumarcus/baixaai-native-host/`)
-   — a pasta que o Chrome **de fato usa** pra rodar o native messaging
-   host. Foi criada bem no início do projeto (histórico #4) porque o
-   Chrome bloqueia rodar processos a partir de um volume externo — só
-   `native-host` foi movido pra cá, o resto da extensão (`manifest.json`,
-   `background.js` etc.) continua sendo carregado do SSD via "Carregar sem
-   compactação".
+1. **`/Volumes/SSD_NVME/AgentesIA/BaixarVideos/baixaai/`** — a pasta
+   versionada, ligada ao git/GitHub. É nela que eu (Claude) edito o código
+   por padrão nas conversas, e é a fonte de verdade pra tudo.
+2. **`~/Desktop/AgentesIA/baixaai/`** — cópia manual que o usuário mantém
+   pra não depender do SSD estar conectado. É **esta pasta que o Chrome usa
+   de fato como "Carregar sem compactação"** (a extensão em si —
+   `manifest.json`, `background.js`, `popup.*`, `content.js`, `icons/`).
+   O usuário copia manualmente do SSD pra cá quando quer atualizar.
+3. **`~/baixaai-native-host/`** (`/Users/eusoumarcus/baixaai-native-host/`)
+   — pasta separada que contém **só o `native-host/`** (o ajudante nativo:
+   `baixaai_host.py`, `run_host.sh`, `paths.json`, o manifesto do Chrome).
+   Existe porque o `native-host` **não pode viver dentro do Desktop** (nem
+   Documents/Downloads) — ver decisão #17 (proteção TCC do macOS bloqueia
+   silenciosamente o `bash` de ler arquivos ali, mesmo com o Chrome tendo
+   Acesso Total ao Disco). O manifesto registrado no Chrome
+   (`~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.baixaai.host.json`)
+   aponta pro `run_host.sh` **desta** pasta, não da Desktop nem do SSD.
 
-**Toda mudança em `baixaai_host.py`, `install.sh`/`install.ps1` ou
-`com.baixaai.host.json.template` precisa ser copiada manualmente pras duas
-pastas.** Já aconteceu de várias correções (Windows, Facebook, fix do
-YouTube/EJS, fix da notificação) ficarem só na pasta versionada por
-semanas sem chegar na pasta que o Chrome usa de verdade — isso é o que
-causou o download parar de funcionar sem nenhuma mudança óbvia de causa
-(ver histórico #17). Sempre confirmar com
-`diff ~/baixaai-native-host/baixaai_host.py <caminho-do-SSD>/native-host/baixaai_host.py`
-depois de qualquer alteração nessa área.
+**Resumindo o fluxo real:** a extensão (JS/HTML/CSS) carrega da pasta 2
+(Desktop); o ajudante nativo (Python) roda a partir da pasta 3
+(`~/baixaai-native-host`). As duas pastas ficam desatualizadas em relação
+à pasta 1 (SSD) até alguém copiar manualmente — **toda mudança em
+qualquer arquivo do projeto precisa ser copiada nas três pastas**. Já
+aconteceu de várias correções (Windows, Facebook, fix do YouTube/EJS, fix
+da notificação, fix do AV1) ficarem só na pasta versionada por semanas sem
+chegar nas pastas que o Chrome usa de verdade — isso é o que causou o
+download parar de funcionar sem nenhuma mudança óbvia de causa (ver
+histórico #17, #19). Sempre confirmar com `diff` entre as três cópias
+depois de qualquer alteração.
 
 ## Arquitetura
 
@@ -273,6 +282,73 @@ depois de qualquer alteração nessa área.
     (lidos das linhas `[BaixaAI] concluído: ...` / `[BaixaAI] ERRO: ...`
     que o worker já grava).
 
+17. **`native-host/` não pode viver dentro de `~/Desktop` (nem
+    `Documents`/`Downloads`) — proteção TCC do macOS bloqueia o `bash`
+    silenciosamente.** Depois da barra de progresso (decisão #16), o
+    ajudante nativo passou a rodar de dentro de `~/Desktop/AgentesIA/
+    baixaai/native-host/` (o usuário reinstalou o `install.sh` a partir de
+    lá) e todo download passou a falhar com "Native host has exited.".
+    Diagnóstico levou horas: manifesto do Chrome válido, ID da extensão
+    batendo, sem política de enterprise, sem processo zumbi, Acesso Total
+    ao Disco concedido ao Google Chrome (sem efeito) — e um teste com
+    injeção de trace (`echo ... >> /tmp/trace.log` como primeira linha do
+    `run_host.sh`) provou que o Chrome **nunca chega a executar o
+    processo**, nem com um host mínimo novo criado do zero só pra
+    descartar bug de código. A causa real apareceu no log do kernel
+    (`log stream --predicate 'subsystem == "com.apple.TCC" OR eventMessage
+    CONTAINS "Sandbox"'`):
+    ```
+    sandboxd rejected approval request from bash for
+    kTCCServiceSystemPolicyDesktopFolder (.../baixaai/native-host):
+    would require prompt
+    System Policy: bash(PID) deny(1) file-read-data .../native-host/run_host.sh
+    ```
+    O Desktop é uma pasta protegida (TCC) no macOS, e binários de sistema
+    como `/bin/bash` são "platform binaries" — eles **nunca podem disparar
+    um prompt de permissão** pra pastas protegidas, então o pedido é
+    negado direto, sem diálogo nenhum. Dar Acesso Total ao Disco pro
+    **Google Chrome** não resolve, porque quem está pedindo acesso ao
+    arquivo não é o processo Chrome, é o `bash` que ele manda rodar (via
+    shebang do `run_host.sh`) — cada binário tem sua própria identidade
+    TCC. **Fix:** o `native-host/` (com `baixaai_host.py`, `run_host.sh`,
+    `paths.json` e o manifesto do Chrome apontando pra lá) precisa ficar
+    fora de Desktop/Documents/Downloads — voltou a usar
+    `~/baixaai-native-host/native-host/` (fora de qualquer pasta
+    protegida), reexecutando `install.sh` de lá. A extensão em si
+    (`manifest.json`/`background.js`/`popup.*`) pode continuar carregando
+    do Desktop sem problema, porque quem lê esses arquivos é o próprio
+    processo Chrome (que já tem Acesso Total ao Disco), não um binário de
+    sistema spawnado — só o `native-host` é afetado, por passar por
+    `bash`/`python3` como processo filho. Ver aviso atualizado no topo do
+    documento (agora "três pastas", não duas).
+
+18. **`install.sh` agora prefere o ffmpeg do Homebrew (com decoder AV1) em
+    vez do primeiro `ffmpeg` do PATH.** Um Reels do Facebook baixou em
+    AV1 (`av01`), e o ffmpeg resolvido pelo `paths.json` (o do conda,
+    `/opt/anaconda3/bin/ffmpeg` 4.3.2, de 2022) não tem o decoder — a
+    normalização pra Full HD falhava com "Decoder (codec av1) not found"
+    (o seletor de formato da decisão #4 já prioriza avc1/H.264, mas cai
+    pra AV1 quando a plataforma só oferece esse codec pro vídeo em
+    questão, o que Facebook/TikTok fazem com alguma frequência). Instalado
+    Homebrew + `brew install ffmpeg` (que traz `libdav1d` como
+    dependência) e `paths.json` das três pastas repontado pra
+    `/opt/homebrew/bin/ffmpeg`. Pra essa correção não regredir numa
+    próxima vez que `install.sh` rodar (ele normalmente pega o primeiro
+    `ffmpeg` do PATH, que continua sendo o do conda em terminais com
+    `(base)` ativo), o script agora: prefere explicitamente
+    `/opt/homebrew/bin/ffmpeg`/`/usr/local/bin/ffmpeg` sobre `command -v
+    ffmpeg`; se só achar um ffmpeg sem decoder de AV1 (`ffmpeg -decoders |
+    grep -i av1` vazio), reinstala via Homebrew automaticamente.
+
+19. **TikTok entrou na allowlist de download direto do mesmo jeito que
+    Globo/Facebook — sem lógica nova no host nativo.**
+    `isDirectDownloadSite()` (`background.js`) agora aceita `tiktok.com` e
+    qualquer `*.tiktok.com` (cobre os links curtos `vm.`/`vt.tiktok.com`
+    de compartilhamento). O yt-dlp já tem extractor nativo (`TikTokIE`),
+    mesmo raciocínio das decisões #9 e #13 — não precisou mexer em
+    `baixaai_host.py`. Vídeos do TikTok também podem vir em AV1, então
+    depende do fix da decisão #18 pra normalizar sem erro.
+
 ## Versionamento (Git/GitHub)
 
 - Repositório remoto: https://github.com/eusoumarcusbr/baixaai (público).
@@ -369,13 +445,32 @@ Nesta ordem, ao longo do desenvolvimento:
     `background.js`/`popup.js`/`popup.html`/`popup.css`, não só no host
     nativo) — não precisa rodar `install.sh` de novo (nenhuma dependência
     nova).
+19. Depois de reinstalar o `native-host` a partir de dentro de
+    `~/Desktop/AgentesIA/baixaai/` (achando que resolveria o "não
+    encontrado" do item anterior), todo download passou a falhar com
+    "Native host has exited." — causa raiz era a proteção TCC do Desktop
+    bloqueando o `bash` (decisão #17). Resolvido apontando o `native-host`
+    de volta pra `~/baixaai-native-host/` (fora do Desktop).
+20. Facebook Reels específico deu "Erro: ffmpeg falhou ao normalizar o
+    vídeo para Full HD." — vídeo tinha vindo em AV1 e o ffmpeg do conda
+    não decodifica esse codec. Resolvido instalando ffmpeg via Homebrew
+    (traz `libdav1d`) e apontando `paths.json` das três pastas pra lá;
+    `install.sh` também foi endurecido pra não regredir nisso de novo
+    (decisão #18).
+21. Pedido de suporte a vídeos do TikTok → domínio `tiktok.com` e
+    `*.tiktok.com` adicionados à allowlist de download direto, sem
+    mudança no host nativo (decisão #19).
 
 ## Estado atual
 
 - **macOS**: testado de ponta a ponta pelo usuário (Marcus), funcionando
-  pra YouTube e Instagram, com todos os fixes acima aplicados. Popup ganhou
-  barra de progresso (decisão #16, 25/08/2026) — usuário precisa recarregar
-  a extensão em `chrome://extensions` pra ver a mudança.
+  pra YouTube, Instagram, Globo, Facebook e TikTok (v2.5.0), com todos os
+  fixes acima aplicados — incluindo o fix do TCC do Desktop (decisão #17)
+  e do ffmpeg/AV1 (decisão #18), ambos de 25/08/2026. Popup com barra de
+  progresso (decisão #16). Estrutura real: extensão carrega de
+  `~/Desktop/AgentesIA/baixaai/`, `native-host` roda de
+  `~/baixaai-native-host/native-host/` — ver aviso "três pastas" no topo
+  do documento.
 - **Windows**: implementado de verdade em 03/08/2026 (`install.ps1` +
   notificação/som/flags de processo cross-platform em `baixaai_host.py`,
   decisão #12) — antes disso era só documentação sem código

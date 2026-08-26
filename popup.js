@@ -138,7 +138,7 @@ async function init() {
     directDownloadMode = !!(siteResp && siteResp.directDownload);
 
     if (directDownloadMode) {
-      modeLabelEl.textContent = 'YouTube/Instagram/Globo/Facebook detectado — baixa o arquivo original.';
+      modeLabelEl.textContent = 'YouTube/Instagram/Globo/Facebook/TikTok detectado — baixa o arquivo original.';
       statusEl.textContent = 'Pronto para baixar o vídeo desta página.';
       btn.textContent = 'Baixar arquivo original';
       btn.disabled = false;

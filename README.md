@@ -2,9 +2,10 @@
 
 Extensão de Chrome para uso pessoal, com dois modos:
 
-- **YouTube, Instagram, Globo e Facebook** (g1, ge, gshow, globoplay,
-  oglobo, redeglobo etc. — qualquer `*.globo.com` — e `facebook.com` /
-  `fb.watch`, incluindo reels) → baixa o **arquivo de vídeo original**
+- **YouTube, Instagram, Globo, Facebook e TikTok** (g1, ge, gshow, globoplay,
+  oglobo, redeglobo etc. — qualquer `*.globo.com` — `facebook.com` /
+  `fb.watch`, incluindo reels — e `tiktok.com`, incluindo os links curtos
+  `vm.tiktok.com`/`vt.tiktok.com`) → baixa o **arquivo de vídeo original**
   (usa um ajudante local que roda `yt-dlp` + `ffmpeg`), normalizado para
   Full HD: **1920×1080 (16:9)** horizontal ou **1080×1920 (9:16)** vertical.
 - **Qualquer outro site** → grava a tela em tempo real (fallback), já que
@@ -14,7 +15,7 @@ Extensão de Chrome para uso pessoal, com dois modos:
 A extensão detecta sozinha em qual dos dois modos está, com base na URL da
 aba ativa.
 
-**Importante sobre o modo YouTube/Instagram/Globo/Facebook:** o Chrome pode encerrar a
+**Importante sobre o modo YouTube/Instagram/Globo/Facebook/TikTok:** o Chrome pode encerrar a
 extensão (service worker) sozinho depois de um tempo, o que mataria um
 download longo no meio. Por isso o ajudante local dispara um **processo
 totalmente separado do Chrome** para baixar+normalizar — ele roda até o
@@ -43,7 +44,7 @@ baixaai/
 2. Ative o **Modo desenvolvedor**.
 3. **Carregar sem compactação** → selecione a pasta `baixaai`.
 
-### 2) Instalar o ajudante local (necessário para YouTube/Instagram/Globo/Facebook)
+### 2) Instalar o ajudante local (necessário para YouTube/Instagram/Globo/Facebook/TikTok)
 
 #### macOS
 
@@ -96,7 +97,8 @@ hosts só são lidos quando o Chrome inicia.
 ## Como usar
 
 1. Abra o vídeo do YouTube, Instagram, Globo (g1, ge, gshow, globoplay
-   etc.) ou Facebook (posts, reels, fb.watch) — ou qualquer outro site.
+   etc.), Facebook (posts, reels, fb.watch) ou TikTok — ou qualquer outro
+   site.
 2. Clique no ícone da extensão.
 3. Escolha o ajuste de proporção (barras pretas ou corte).
 4. Clique em **Baixar**. O popup confirma que o download começou em
@@ -123,6 +125,10 @@ hosts só são lidos quando o Chrome inicia.
   watch parties) exige estar logado — mesma lógica de cookies do
   Instagram (tenta com os cookies do Chrome, senão sem). Conteúdo público
   de páginas costuma funcionar sem login.
+- **TikTok**: vídeos públicos baixam sem login. Alguns vídeos são
+  codificados em **AV1** — o ffmpeg precisa ter suporte a esse codec pra
+  normalizar pra Full HD (o `install.sh` já garante isso preferindo o
+  ffmpeg do Homebrew, que inclui o decoder via `libdav1d`).
 - **Conteúdo com DRM** (raro fora de plataformas de streaming pago) não é
   suportado por nenhum dos dois modos.
 - O modo de **captura de tela** (sites genéricos) grava em tempo real —
@@ -145,7 +151,7 @@ hosts só são lidos quando o Chrome inicia.
 ## Sobre Termos de Uso
 
 Isto é uma ferramenta de **uso pessoal e privado**. Baixar vídeos do
-YouTube, Instagram, Globo ou Facebook viola os Termos de Uso dessas
-plataformas, independente da técnica usada — evite redistribuir conteúdo
-de terceiros e tenha isso em mente ao usar.
+YouTube, Instagram, Globo, Facebook ou TikTok viola os Termos de Uso
+dessas plataformas, independente da técnica usada — evite redistribuir
+conteúdo de terceiros e tenha isso em mente ao usar.
 
