@@ -14,6 +14,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST_SCRIPT="$SCRIPT_DIR/baixaai_host.py"
 CHROME_NMH_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 
+# Resolvido uma vez, logo no início, e reusado pra instalar o yt-dlp e pra
+# gerar o wrapper do Chrome — assim os dois usam sempre o MESMO Python (ver
+# nota grande mais abaixo sobre o bug de duas instalações de Python
+# coexistindo, cada uma com sua própria versão do yt-dlp).
+PYTHON3_PATH="$(command -v python3)"
+if [ -z "$PYTHON3_PATH" ]; then
+  echo "python3 não encontrado. Instale (ex.: 'brew install python3' ou"
+  echo "https://www.python.org/downloads/) e rode este script de novo."
+  exit 1
+fi
+echo "==> Usando python3: $PYTHON3_PATH ($("$PYTHON3_PATH" --version 2>&1))"
+
 echo "==> Instalando/atualizando yt-dlp (com o pacote yt-dlp-ejs)..."
 # Sempre roda o upgrade, mesmo se o yt-dlp já existir: o YouTube passou a
 # exigir um novo mecanismo de resolução de desafio JS (EJS, ver
@@ -24,8 +36,32 @@ echo "==> Instalando/atualizando yt-dlp (com o pacote yt-dlp-ejs)..."
 # esse pacote, e por isso os downloads do YouTube passam a falhar (fica
 # só em "imagens disponíveis" ou cai num formato que dá 403 no meio do
 # download).
-pip3 install --user --upgrade "yt-dlp[default]"
-echo "    OK: $(yt-dlp --version)"
+#
+# --break-system-packages: necessário no Python do Homebrew (e em builds
+# recentes do python.org), que marca o ambiente como "externally managed"
+# (PEP 668) e recusa `pip install` sem essa flag — mesmo com --user, que já
+# é a combinação seguro-o-suficiente que a própria mensagem de erro do pip
+# recomenda. Em Pythons mais antigos que não têm essa proteção, a flag é
+# simplesmente ignorada (não quebra nada).
+"$PYTHON3_PATH" -m pip install --user --break-system-packages --upgrade "yt-dlp[default]" \
+  || "$PYTHON3_PATH" -m pip install --user --upgrade "yt-dlp[default]"
+
+# Resolve o yt-dlp recém-instalado pelo MESMO python3 acima (site.getuserbase()),
+# em vez de confiar em `command -v yt-dlp`. Motivo: se o Mac tiver mais de um
+# Python instalado (comum — o do sistema/Xcode Command Line Tools, mais um
+# do Homebrew ou python.org instalado depois), cada um tem sua própria pasta
+# de scripts `--user`, e o PATH pode ter a pasta do Python ERRADO (mais
+# antigo) na frente. Isso já causou "yt-dlp: error: no such option:
+# --js-runtimes" — o `command -v` achava um yt-dlp de meses atrás, instalado
+# por um Python 3.9 do sistema, que nem tinha essa opção, mesmo com a
+# reinstalação atual (via Python novo) tendo funcionado normalmente.
+USER_SCRIPTS_DIR="$("$PYTHON3_PATH" -c 'import site, os; print(os.path.join(site.getuserbase(), "bin"))' 2>/dev/null || true)"
+if [ -n "$USER_SCRIPTS_DIR" ] && [ -x "$USER_SCRIPTS_DIR/yt-dlp" ]; then
+  YTDLP_PATH="$USER_SCRIPTS_DIR/yt-dlp"
+else
+  YTDLP_PATH="$(command -v yt-dlp)"
+fi
+echo "    OK: $("$YTDLP_PATH" --version)"
 
 echo "==> Verificando ffmpeg..."
 # Prefere o ffmpeg do Homebrew (que inclui o decoder AV1 via libdav1d) em vez
@@ -84,7 +120,7 @@ else
 fi
 
 echo "==> Gravando caminhos absolutos (o Chrome não carrega seu .zshrc/conda)..."
-YTDLP_PATH="$(command -v yt-dlp)"
+# YTDLP_PATH e PYTHON3_PATH já foram resolvidos lá em cima.
 FFPROBE_PATH="$(dirname "$FFMPEG_PATH")/ffprobe"
 if [ ! -x "$FFPROBE_PATH" ]; then
   FFPROBE_PATH="$(command -v ffprobe)"
@@ -106,8 +142,6 @@ echo "    deno:    $DENO_PATH"
 echo "==> Registrando o native messaging host no Chrome..."
 mkdir -p "$CHROME_NMH_DIR"
 chmod +x "$HOST_SCRIPT"
-
-PYTHON3_PATH="$(command -v python3)"
 echo "    python3: $PYTHON3_PATH"
 
 # O Chrome executa o "path" do manifesto diretamente (sem shell de login),

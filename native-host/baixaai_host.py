@@ -16,6 +16,14 @@ Modo normal (chamado pelo Chrome via native messaging):
   disco e devolve o estado mais recente (percentual do yt-dlp, "processando"
   durante o ffmpeg, "concluído" ou "erro").
 
+TranscrevAI (site eusoumarcus.com.br/transcrevai, via background.js):
+  {"type": "ping"} -> {"type": "pong", "features": ["audio"]}
+  {"type": "audio", "url": "..."} -> dispara um worker desacoplado que baixa SÓ o
+  áudio (yt-dlp) e converte pra Opus mono 16 kHz (leve, ~15 MB por hora).
+  {"type": "read", "job_id": "...", "offset": N} -> devolve um pedaço do áudio
+  em base64 (native messaging limita cada mensagem a 1 MB).
+  {"type": "cleanup", "job_id": "..."} -> apaga o áudio temporário.
+
 Modo worker (--worker <job_id> <url> <fitMode>):
   Roda de fato o yt-dlp + ffmpeg, grava um log e dispara uma notificação
   nativa do macOS (via osascript) quando termina — com sucesso ou erro.
@@ -37,6 +45,13 @@ LOG_DIR = OUTPUT_DIR / ".logs"
 SCRIPT_PATH = Path(__file__).resolve()
 SCRIPT_DIR = SCRIPT_PATH.parent
 PATHS_FILE = SCRIPT_DIR / "paths.json"
+
+# TranscrevAI: áudio temporário que o site busca em pedaços e depois apaga
+AUDIO_DIR = OUTPUT_DIR / ".transcrevai"
+HOST_VERSION = "2.6.0"
+JOB_ID_RE = re.compile(r"^[0-9a-f]{10}$")
+READ_CHUNK = 700_000  # 700 KB -> ~930 KB em base64, abaixo do limite de 1 MB
+AUDIO_MAX_AGE_S = 6 * 60 * 60
 
 
 def load_resolved_paths():
@@ -343,7 +358,7 @@ def play_sound(success, log=None):
 
 STATUS_ERROR_RE = re.compile(r"^\[BaixaAI\] ERRO: (.+)$")
 STATUS_DONE_RE = re.compile(r"^\[BaixaAI\] concluído: (.+)$")
-STATUS_PROCESSING_MARKER = "[BaixaAI] normalizando para Full HD"
+STATUS_PROCESSING_MARKERS = ("[BaixaAI] normalizando para Full HD", "[BaixaAI] extraindo áudio")
 PROGRESS_RE = re.compile(
     # O "at" pode vir como "537.59KiB/s" (um token) ou "Unknown B/s" (dois
     # tokens, quando o yt-dlp momentaneamente não sabe a velocidade) — por
@@ -377,7 +392,7 @@ def get_job_status(job_id):
                 if m:
                     done_name = Path(m.group(1)).name
                     continue
-                if STATUS_PROCESSING_MARKER in line:
+                if any(m in line for m in STATUS_PROCESSING_MARKERS):
                     processing = True
                     continue
                 m = PROGRESS_RE.match(line)
@@ -402,6 +417,184 @@ def get_job_status(job_id):
     if last_progress is not None:
         return {"state": "downloading", **last_progress}
     return {"state": "starting"}
+
+
+# ---------------------------------------------------------------------
+# TranscrevAI: só o áudio, leve, para transcrição no navegador
+# ---------------------------------------------------------------------
+
+def run_ytdlp_audio(url, workdir, log):
+    ytdlp_bin = which_or_none("yt-dlp")
+    if not ytdlp_bin:
+        raise RuntimeError("yt-dlp não encontrado. Rode o instalador do BaixaAI de novo.")
+    ffmpeg_bin = which_or_none("ffmpeg")
+    deno_bin = which_or_none("deno")
+    title_file = Path(workdir) / "title.txt"
+    base_cmd = [
+        ytdlp_bin,
+        # melhor faixa só de áudio; se a plataforma não separar (Instagram às
+        # vezes), cai para o arquivo completo e o ffmpeg extrai o áudio depois
+        "-f", "ba/b",
+        "--no-playlist",
+        "--newline",
+        "--print-to-file", "%(title)s", str(title_file),
+        "-o", str(Path(workdir) / "media.%(ext)s"),
+    ]
+    if ffmpeg_bin:
+        base_cmd += ["--ffmpeg-location", ffmpeg_bin]
+    if deno_bin:
+        base_cmd += ["--js-runtimes", f"deno:{deno_bin}"]
+    base_cmd += [url]
+    attempts = [
+        base_cmd[:1] + ["--cookies-from-browser", "chrome"] + base_cmd[1:],
+        base_cmd,
+    ]
+    last_err = ""
+    for cmd in attempts:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        lines = []
+        for line in proc.stdout:
+            line = line.strip()
+            if line:
+                lines.append(line)
+                log(line)
+        proc.wait()
+        if proc.returncode == 0:
+            break
+        last_err = "\n".join(lines[-15:])
+    else:
+        raise RuntimeError(
+            "yt-dlp não conseguiu baixar o áudio (conteúdo privado, removido, "
+            "ou exige login). Detalhe:\n" + last_err
+        )
+    files = [p for p in Path(workdir).glob("media.*") if not p.name.endswith((".part", ".ytdl"))]
+    if not files:
+        raise RuntimeError("yt-dlp terminou mas nenhum arquivo de áudio foi encontrado.")
+    title = "audio"
+    try:
+        title = title_file.read_text(encoding="utf-8", errors="replace").splitlines()[0].strip() or title
+    except Exception:
+        pass
+    return max(files, key=lambda p: p.stat().st_size), title
+
+
+def convert_audio_for_transcription(src, job_id, log):
+    """Opus mono 16 kHz (o Whisper usa 16 kHz de qualquer jeito). Se o ffmpeg
+    não tiver libopus, cai para AAC em .m4a."""
+    ffmpeg_bin = which_or_none("ffmpeg")
+    if not ffmpeg_bin:
+        raise RuntimeError("ffmpeg não encontrado. Rode o instalador do BaixaAI de novo.")
+    AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+    variants = [
+        ("ogg", ["-c:a", "libopus", "-b:a", "32k", "-application", "voip"]),
+        ("m4a", ["-c:a", "aac", "-b:a", "64k"]),
+    ]
+    for ext, codec in variants:
+        dest = AUDIO_DIR / f"{job_id}.{ext}"
+        cmd = [ffmpeg_bin, "-y", "-i", str(src), "-vn", "-ac", "1", "-ar", "16000", *codec, str(dest)]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        if proc.returncode == 0 and dest.exists() and dest.stat().st_size > 0:
+            return dest, ext
+        log("ffmpeg (" + ext + ") falhou: " + " ".join(proc.stdout.strip().splitlines()[-3:]))
+        try:
+            dest.unlink()
+        except Exception:
+            pass
+    raise RuntimeError("ffmpeg não conseguiu converter o áudio.")
+
+
+def cleanup_old_audio():
+    import time
+    if not AUDIO_DIR.exists():
+        return
+    now = time.time()
+    for p in AUDIO_DIR.iterdir():
+        try:
+            if now - p.stat().st_mtime > AUDIO_MAX_AGE_S:
+                p.unlink()
+        except Exception:
+            pass
+
+
+def run_audio_worker(job_id, url):
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = LOG_DIR / f"{job_id}.log"
+    with open(log_path, "a", encoding="utf-8") as logf:
+        def log(msg):
+            logf.write(msg + "\n")
+            logf.flush()
+
+        try:
+            log(f"[BaixaAI] job {job_id} (TranscrevAI) baixando áudio: {url}")
+            with tempfile.TemporaryDirectory(prefix="baixaai_audio_") as workdir:
+                src, title = run_ytdlp_audio(url, workdir, log)
+                log("[BaixaAI] extraindo áudio para transcrição...")
+                dest, ext = convert_audio_for_transcription(src, job_id, log)
+            meta = {
+                "title": title,
+                "file": dest.name,
+                "ext": ext,
+                "mime": "audio/ogg" if ext == "ogg" else "audio/mp4",
+                "size": dest.stat().st_size,
+            }
+            (AUDIO_DIR / f"{job_id}.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+            log(f"[BaixaAI] concluído: {dest}")
+        except Exception as exc:  # noqa: BLE001
+            log("[BaixaAI] ERRO: " + str(exc))
+
+
+def read_audio_chunk(job_id, offset):
+    if not JOB_ID_RE.match(job_id or ""):
+        return {"type": "error", "message": "job_id inválido."}
+    meta_path = AUDIO_DIR / f"{job_id}.json"
+    if not meta_path.exists():
+        return {"type": "error", "message": "Áudio não encontrado (já foi apagado?)."}
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    path = (AUDIO_DIR / meta["file"]).resolve()
+    if path.parent != AUDIO_DIR.resolve() or not path.exists():
+        return {"type": "error", "message": "Arquivo de áudio inválido."}
+    total = path.stat().st_size
+    offset = max(0, int(offset or 0))
+    with open(path, "rb") as f:
+        f.seek(offset)
+        data = f.read(READ_CHUNK)
+    import base64
+    return {
+        "type": "chunk",
+        "data": base64.b64encode(data).decode("ascii"),
+        "offset": offset,
+        "total": total,
+        "eof": offset + len(data) >= total,
+        "title": meta.get("title", "audio"),
+        "ext": meta.get("ext", "ogg"),
+        "mime": meta.get("mime", "audio/ogg"),
+    }
+
+
+def cleanup_audio(job_id):
+    if not JOB_ID_RE.match(job_id or ""):
+        return
+    for p in list(AUDIO_DIR.glob(f"{job_id}.*")) + [LOG_DIR / f"{job_id}.log"]:
+        try:
+            p.unlink()
+        except Exception:
+            pass
+
+
+def spawn_detached(worker_cmd):
+    popen_kwargs = dict(
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        cwd=str(Path.home()),
+    )
+    if sys.platform == "win32":
+        popen_kwargs["creationflags"] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        )
+    else:
+        popen_kwargs["start_new_session"] = True
+    subprocess.Popen(worker_cmd, **popen_kwargs)
 
 
 def run_worker(job_id, url, fit_mode):
@@ -437,6 +630,30 @@ def handle_message(message):
         send_message({"type": "status", **status})
         return
 
+    if message.get("type") == "ping":
+        send_message({"type": "pong", "version": HOST_VERSION, "features": ["audio"]})
+        return
+
+    if message.get("type") == "audio":
+        url = str(message.get("url", ""))
+        if not re.match(r"^https?://", url):
+            send_message({"type": "error", "message": "Link inválido."})
+            return
+        cleanup_old_audio()
+        job_id = uuid.uuid4().hex[:10]
+        spawn_detached([sys.executable, str(SCRIPT_PATH), "--audio-worker", job_id, url])
+        send_message({"type": "started", "job_id": job_id})
+        return
+
+    if message.get("type") == "read":
+        send_message(read_audio_chunk(message.get("job_id", ""), message.get("offset", 0)))
+        return
+
+    if message.get("type") == "cleanup":
+        cleanup_audio(message.get("job_id", ""))
+        send_message({"type": "ok"})
+        return
+
     if message.get("type") == "download":
         job_id = uuid.uuid4().hex[:10]
         worker_cmd = [
@@ -469,6 +686,11 @@ def handle_message(message):
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--audio-worker":
+        _, _, job_id, url = sys.argv[:4]
+        run_audio_worker(job_id, url)
+        return
+
     if len(sys.argv) > 1 and sys.argv[1] == "--worker":
         _, _, job_id, url, fit_mode = sys.argv[:5]
         run_worker(job_id, url, fit_mode)

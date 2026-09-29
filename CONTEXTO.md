@@ -349,6 +349,36 @@ depois de qualquer alteração.
     `baixaai_host.py`. Vídeos do TikTok também podem vir em AV1, então
     depende do fix da decisão #18 pra normalizar sem erro.
 
+20. **Integração com o TranscrevAI (v2.6.0): a extensão entrega o áudio
+    de links pro site de transcrição.** O TranscrevAI
+    (`https://eusoumarcus.com.br/transcrevai/`) transcreve 100% no
+    navegador (Whisper via WebGPU), mas não consegue baixar YouTube/
+    Instagram sozinho (CORS e bloqueio de servidores). Solução:
+    - `manifest.json` ganhou `externally_connectable` para
+      `eusoumarcus.com.br` (e `localhost`/`127.0.0.1` pra testes). Com
+      isso a página chama `chrome.runtime.sendMessage(ID_DA_EXTENSAO, ...)`
+      direto, sem content script. O ID fixo (campo `key`) é o que torna
+      isso possível no Mac e no Windows.
+    - `background.js`: `onMessageExternal` confere a origem e repassa pro
+      host nativo as mensagens `TRANSCREVAI_PING`, `_AUDIO`, `_STATUS`,
+      `_READ` e `_CLEANUP` (uma conexão nativa curta por mensagem, mesma
+      filosofia da decisão #16).
+    - `baixaai_host.py`: novos tipos `ping` (responde `pong` com
+      `features: ["audio"]`; host antigo responde "Mensagem desconhecida",
+      e o site mostra "atualize o ajudante"), `audio` (worker desacoplado
+      `--audio-worker`: `yt-dlp -f "ba/b"` + ffmpeg para Opus mono 16 kHz,
+      ~15 MB por hora, com fallback AAC .m4a se faltar libopus), `read`
+      (pedaços de 700 KB em base64, porque native messaging limita cada
+      mensagem host→Chrome a 1 MB) e `cleanup`. O áudio fica em
+      `~/Downloads/BaixaAI/.transcrevai/` só até o site terminar de ler;
+      sobras com mais de 6 h são apagadas no próximo pedido.
+    - `popup`: em sites de download direto aparece o botão "Transcrever no
+      TranscrevAI", que abre o site com `?url=<link da aba>`.
+    - Testado de ponta a ponta num Chromium com a extensão carregada e o
+      host registrado (página → extensão → host → yt-dlp → ffmpeg →
+      pedaços → página), com arquivo de 20 min em 6 pedaços. Falta validar
+      no Chrome do Mac com YouTube/Instagram reais.
+
 ## Versionamento (Git/GitHub)
 
 - Repositório remoto: https://github.com/eusoumarcusbr/baixaai (público).
@@ -461,6 +491,13 @@ Nesta ordem, ao longo do desenvolvimento:
     `*.tiktok.com` adicionados à allowlist de download direto, sem
     mudança no host nativo (decisão #19).
 
+22. Pedido de integração com o TranscrevAI (ferramenta de transcrição no
+    navegador) para transcrever links de YouTube/Instagram → áudio entregue
+    pela extensão via `externally_connectable` (decisão #20). Precisa
+    recarregar a extensão em `chrome://extensions`; o host nativo novo
+    entra em uso sozinho (não há dependência nova, não precisa rodar
+    `install.sh`).
+
 ## Estado atual
 
 - **macOS**: testado de ponta a ponta pelo usuário (Marcus), funcionando
@@ -470,7 +507,8 @@ Nesta ordem, ao longo do desenvolvimento:
   progresso (decisão #16). Estrutura real: extensão carrega de
   `~/Desktop/AgentesIA/baixaai/`, `native-host` roda de
   `~/baixaai-native-host/native-host/` — ver aviso "três pastas" no topo
-  do documento.
+  do documento. v2.6.0 (11/09/2026) adiciona a ponte com o TranscrevAI
+  (decisão #20).
 - **Windows**: implementado de verdade em 03/08/2026 (`install.ps1` +
   notificação/som/flags de processo cross-platform em `baixaai_host.py`,
   decisão #12) — antes disso era só documentação sem código

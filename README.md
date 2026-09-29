@@ -60,12 +60,37 @@ O script instala o `yt-dlp` (via `pip3 install --user`), confere/instala o
 `ffmpeg`, grava os caminhos absolutos encontrados (importante quando você
 usa conda/homebrew) e registra o host nativo no Chrome.
 
-> **Pasta em volume externo?** Se a pasta `baixaai` estiver num HD/SSD
-> externo (ex.: `/Volumes/...`), o Chrome pode ser bloqueado pelo macOS de
-> rodar processos ali. Se os passos acima não funcionarem (erro "Native
-> host has exited" mesmo com tudo certo), mova pelo menos a pasta
-> `native-host` para dentro do seu diretório pessoal (`~`) e rode o
-> `install.sh` de lá.
+> **Pasta em Desktop, Documents, Downloads ou volume externo?** Se der erro
+> "Native host has exited" mesmo com tudo certo (manifesto correto, yt-dlp/
+> ffmpeg instalados), é quase sempre isso: o macOS protege as pastas
+> **Desktop, Documents e Downloads** (proteção TCC) e bloqueia
+> silenciosamente o `bash` de ler arquivos ali quando é o Chrome quem manda
+> rodar o processo — mesmo com o Chrome tendo Acesso Total ao Disco, porque
+> quem pede o acesso é o `bash`, não o Chrome. Pastas em HD/SSD externo
+> (`/Volumes/...`) têm o mesmo tipo de bloqueio, por outro motivo. **Fix:**
+> mova pelo menos a pasta `native-host` para um lugar comum dentro do seu
+> diretório pessoal, fora dessas três pastas — por exemplo `~/baixaai` ou
+> `~/Documents` não, mas algo como `~/.baixaai` ou simplesmente
+> `~/baixaai-native-host` — e rode o `install.sh` de lá. A extensão em si
+> (o resto da pasta, carregada via "Carregar sem compactação") pode
+> continuar em Desktop/Downloads sem problema, só o `native-host` é afetado.
+
+> **`error: externally-managed-environment` ao instalar o yt-dlp?** Comum
+> em Macs com Python instalado via Homebrew (ou builds recentes do
+> python.org): o pip recusa instalar pacotes sem a flag
+> `--break-system-packages`. O `install.sh` já tenta essa flag
+> automaticamente — se ainda assim der erro, rode manualmente:
+> `python3 -m pip install --user --break-system-packages --upgrade "yt-dlp[default]"`
+> e depois `bash install.sh` de novo.
+
+> **Mac com mais de um Python instalado?** Se o `yt-dlp --version` mostrar
+> uma versão antiga mesmo depois de reinstalar (ou der erro tipo
+> `no such option: --js-runtimes`), o PATH provavelmente está achando um
+> `yt-dlp` de uma instalação de Python mais antiga primeiro. O `install.sh`
+> já resolve isso automaticamente a partir da v2.5.1 (usa sempre o mesmo
+> `python3` do começo ao fim do script) — se estiver numa versão mais
+> antiga do `install.sh`, baixe a mais recente do repositório
+> (github.com/eusoumarcusbr/baixaai) e rode de novo.
 
 #### Windows
 
@@ -112,6 +137,19 @@ hosts só são lidos quando o Chrome inicia.
    segundo plano — pode fechar. Quando terminar, uma notificação e um som
    avisam, e o arquivo está em `Downloads/BaixaAI/`.
 5. Se algo der errado, o log fica em `Downloads/BaixaAI/.logs/<job_id>.log`.
+
+## TranscrevAI (transcrição de links)
+
+A partir da v2.6.0 o BaixaAI também serve o site **TranscrevAI**
+(`https://eusoumarcus.com.br/transcrevai/`), que transcreve no próprio
+navegador. Quando o site recebe um link de YouTube, Instagram, TikTok,
+Facebook ou Globo, ele pede o áudio para a extensão, que baixa só o áudio
+com o yt-dlp (arquivo leve, apagado depois) e devolve para a página.
+
+- No popup, em sites de download direto, o botão **Transcrever no
+  TranscrevAI** abre o site já com o link da aba.
+- Depois de atualizar, recarregue a extensão em `chrome://extensions`. O
+  ajudante local não precisa ser reinstalado.
 
 ## Limitações e observações
 

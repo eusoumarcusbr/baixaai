@@ -136,3 +136,121 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   return undefined;
 });
+
+// ---------------------------------------------------------------------
+// TranscrevAI (eusoumarcus.com.br/transcrevai)
+// O site transcreve no navegador, mas não consegue baixar YouTube/Instagram
+// sozinho. Pelo "externally_connectable" do manifest ele manda mensagens
+// direto pra cá; a extensão repassa pro ajudante local (yt-dlp), que baixa só
+// o áudio num worker desacoplado (mesma lógica do download de vídeo).
+// ---------------------------------------------------------------------
+
+function isTranscrevaiOrigin(origin) {
+  try {
+    const u = new URL(origin);
+    const h = u.hostname;
+    if (h === 'localhost' || h === '127.0.0.1') return true;
+    return u.protocol === 'https:' && (h === 'eusoumarcus.com.br' || h.endsWith('.eusoumarcus.com.br'));
+  } catch (e) {
+    return false;
+  }
+}
+
+// Uma pergunta, uma resposta: abre a conexão nativa, manda a mensagem,
+// devolve a primeira resposta e fecha.
+function nativeOnce(message, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    let port;
+    try {
+      port = chrome.runtime.connectNative(NATIVE_HOST);
+    } catch (e) {
+      reject(new Error('Ajudante local (BaixaAI Helper) não encontrado.'));
+      return;
+    }
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      try { port.disconnect(); } catch (e) { /* ok */ }
+      reject(new Error('O ajudante local não respondeu a tempo.'));
+    }, timeoutMs);
+    port.onMessage.addListener((resp) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(resp);
+      try { port.disconnect(); } catch (e) { /* ok */ }
+    });
+    port.onDisconnect.addListener(() => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      const err = chrome.runtime.lastError ? chrome.runtime.lastError.message : 'conexão encerrada';
+      reject(new Error('Não consegui falar com o ajudante local (' + err + ').'));
+    });
+    port.postMessage(message);
+  });
+}
+
+chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
+  if (!isTranscrevaiOrigin(sender.origin || sender.url || '')) {
+    sendResponse({ ok: false, error: 'Origem não autorizada.' });
+    return undefined;
+  }
+  const type = msg && msg.type;
+  const version = chrome.runtime.getManifest().version;
+
+  if (type === 'TRANSCREVAI_PING') {
+    nativeOnce({ type: 'ping' }, 8000)
+      .then((r) => {
+        const ok = r && r.type === 'pong' && Array.isArray(r.features) && r.features.includes('audio');
+        sendResponse({ ok: true, version, host: ok ? 'ok' : 'outdated', hostVersion: r && r.version });
+      })
+      .catch((e) => sendResponse({ ok: true, version, host: 'missing', hostError: e.message }));
+    return true;
+  }
+
+  if (type === 'TRANSCREVAI_AUDIO') {
+    if (!/^https?:\/\//.test(String(msg.url || ''))) {
+      sendResponse({ ok: false, error: 'Link inválido.' });
+      return undefined;
+    }
+    nativeOnce({ type: 'audio', url: msg.url })
+      .then((r) => {
+        if (r && r.type === 'started') sendResponse({ ok: true, jobId: r.job_id });
+        else sendResponse({ ok: false, error: (r && r.message) || 'Não consegui iniciar o download do áudio.' });
+      })
+      .catch((e) => sendResponse({ ok: false, error: e.message }));
+    return true;
+  }
+
+  if (type === 'TRANSCREVAI_STATUS') {
+    nativeOnce({ type: 'status', job_id: msg.jobId }, 15000)
+      .then((r) => sendResponse(r))
+      .catch(() => sendResponse({ state: 'unknown' }));
+    return true;
+  }
+
+  if (type === 'TRANSCREVAI_READ') {
+    nativeOnce({ type: 'read', job_id: msg.jobId, offset: Number(msg.offset) || 0 }, 30000)
+      .then((r) => {
+        if (r && r.type === 'chunk') {
+          sendResponse({ ok: true, data: r.data, offset: r.offset, total: r.total, eof: r.eof, title: r.title, ext: r.ext, mime: r.mime });
+        } else {
+          sendResponse({ ok: false, error: (r && r.message) || 'Falha ao ler o áudio.' });
+        }
+      })
+      .catch((e) => sendResponse({ ok: false, error: e.message }));
+    return true;
+  }
+
+  if (type === 'TRANSCREVAI_CLEANUP') {
+    nativeOnce({ type: 'cleanup', job_id: msg.jobId }, 10000)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  sendResponse({ ok: false, error: 'Mensagem desconhecida.' });
+  return undefined;
+});

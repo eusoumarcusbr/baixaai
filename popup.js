@@ -7,6 +7,8 @@ const hintEl = document.getElementById('hint');
 const progressWrap = document.getElementById('progressWrap');
 const progressBar = document.getElementById('progressBar');
 const progressText = document.getElementById('progressText');
+const transcribeBtn = document.getElementById('transcribeBtn');
+const TRANSCREVAI_URL = 'https://eusoumarcus.com.br/transcrevai/';
 
 let currentTabId = null;
 let currentTabUrl = null;
@@ -142,6 +144,7 @@ async function init() {
       statusEl.textContent = 'Pronto para baixar o vídeo desta página.';
       btn.textContent = 'Baixar arquivo original';
       btn.disabled = false;
+      transcribeBtn.hidden = false;
       hintEl.textContent =
         'O download roda em segundo plano, fora do Chrome — pode fechar este ' +
         'popup logo depois de clicar. Uma notificação do macOS avisa quando ' +
@@ -244,3 +247,10 @@ btn.addEventListener('click', () => {
 });
 
 init();
+
+// Abre o TranscrevAI já com o link desta aba; o site pede o áudio de volta
+// pra extensão (onMessageExternal no background.js).
+transcribeBtn.addEventListener('click', () => {
+  chrome.tabs.create({ url: TRANSCREVAI_URL + '?url=' + encodeURIComponent(currentTabUrl) });
+  window.close();
+});
