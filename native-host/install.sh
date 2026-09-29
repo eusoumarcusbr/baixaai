@@ -14,11 +14,60 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HOST_SCRIPT="$SCRIPT_DIR/baixaai_host.py"
 CHROME_NMH_DIR="$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
 
-# Resolvido uma vez, logo no início, e reusado pra instalar o yt-dlp e pra
-# gerar o wrapper do Chrome — assim os dois usam sempre o MESMO Python (ver
-# nota grande mais abaixo sobre o bug de duas instalações de Python
-# coexistindo, cada uma com sua própria versão do yt-dlp).
-PYTHON3_PATH="$(command -v python3)"
+echo "==> Verificando Homebrew..."
+# Homebrew é usado logo abaixo pra garantir um Python moderno e, mais adiante,
+# um ffmpeg com suporte a AV1 — instalar ele primeiro simplifica o resto do
+# script inteiro (deixa de precisar de instruções manuais separadas).
+if ! command -v brew >/dev/null 2>&1; then
+  for shellenv_bin in "/opt/homebrew/bin/brew" "/usr/local/bin/brew"; do
+    [ -x "$shellenv_bin" ] && eval "$("$shellenv_bin" shellenv)"
+  done
+fi
+if ! command -v brew >/dev/null 2>&1; then
+  echo "    Homebrew não encontrado. Instalando (pode pedir sua senha do Mac e"
+  echo "    demorar alguns minutos — só acontece uma vez)..."
+  NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  for shellenv_bin in "/opt/homebrew/bin/brew" "/usr/local/bin/brew"; do
+    [ -x "$shellenv_bin" ] && eval "$("$shellenv_bin" shellenv)"
+  done
+  # Persiste no .zprofile pra sessões futuras do Terminal também enxergarem
+  # o Homebrew, não só esta.
+  if command -v brew >/dev/null 2>&1 && ! grep -q "brew shellenv" "$HOME/.zprofile" 2>/dev/null; then
+    { echo; echo "eval \"\$($(command -v brew) shellenv)\""; } >> "$HOME/.zprofile"
+  fi
+fi
+if command -v brew >/dev/null 2>&1; then
+  echo "    OK: $(brew --version | head -n1)"
+else
+  echo "    Não consegui instalar o Homebrew automaticamente — seguindo sem ele."
+  echo "    ffmpeg pode ficar sem suporte a AV1, e o Python usado pode ser uma"
+  echo "    versão antiga demais pro yt-dlp mais recente."
+fi
+
+echo "==> Verificando Python..."
+# Prefere um Python do Homebrew (mais novo) em vez do Python do sistema/Xcode
+# Command Line Tools, que no macOS costuma ser uma versão antiga (ex.: 3.9).
+# yt-dlp deixou de dar suporte a Python tão antigo em versões recentes, então
+# o pip trava silenciosamente numa versão desatualizada do yt-dlp — sem
+# opções novas como --js-runtimes, e sem nenhum erro na hora da instalação,
+# só quando o download real é tentado. Resolvido uma vez aqui e reusado pra
+# instalar o yt-dlp e pra gerar o wrapper do Chrome mais abaixo — assim os
+# dois usam sempre o MESMO Python.
+PYTHON3_PATH=""
+for candidate in "/opt/homebrew/bin/python3" "/usr/local/bin/python3"; do
+  [ -x "$candidate" ] && PYTHON3_PATH="$candidate" && break
+done
+if [ -z "$PYTHON3_PATH" ] && command -v brew >/dev/null 2>&1; then
+  echo "    Instalando Python do Homebrew (garante uma versão compatível com o"
+  echo "    yt-dlp mais recente)..."
+  brew install python3
+  for candidate in "/opt/homebrew/bin/python3" "/usr/local/bin/python3"; do
+    [ -x "$candidate" ] && PYTHON3_PATH="$candidate" && break
+  done
+fi
+if [ -z "$PYTHON3_PATH" ]; then
+  PYTHON3_PATH="$(command -v python3 || true)"
+fi
 if [ -z "$PYTHON3_PATH" ]; then
   echo "python3 não encontrado. Instale (ex.: 'brew install python3' ou"
   echo "https://www.python.org/downloads/) e rode este script de novo."

@@ -379,6 +379,54 @@ depois de qualquer alteração.
       pedaços → página), com arquivo de 20 min em 6 pedaços. Falta validar
       no Chrome do Mac com YouTube/Instagram reais.
 
+21. **`install.sh` agora instala o Homebrew sozinho e prefere um Python
+    moderno, em vez de depender do que já estiver no Mac.** Motivado pela
+    primeira instalação de verdade num Mac de terceiro (Maria, machine
+    `MacBook-Pro-2`), que expôs três problemas em cadeia que o `install.sh`
+    de antes não tratava:
+    - **TCC bloqueia `bash` também em `~/Downloads`, não só `~/Desktop`**
+      (a decisão #17 só tinha confirmado Desktop). Mesmo erro "Native host
+      has exited.", mesma causa (proteção de pasta do macOS negando
+      silenciosamente o `bash` sem mostrar prompt nenhum), resolvido do
+      mesmo jeito: mover o `native-host` pra fora de
+      Desktop/Documents/Downloads.
+    - **`error: externally-managed-environment` (PEP 668)** ao rodar
+      `pip3 install --user` num Python instalado via Homebrew — precisa da
+      flag `--break-system-packages` junto com `--user` (é a própria
+      mensagem de erro do pip que recomenda essa combinação). Sem isso o
+      script parava ali (`set -e`) antes até de chegar no ffmpeg/deno.
+    - **Python do sistema (3.9, do Xcode Command Line Tools) capado numa
+      versão antiga do yt-dlp.** yt-dlp releases recentes deixaram de dar
+      suporte a Python tão antigo, então `pip3 install --upgrade
+      "yt-dlp[default]"` nesse Python instala silenciosamente a última
+      versão AINDA compatível com 3.9 (~1 ano desatualizada) — sem erro
+      nenhum na hora, só quando o download real roda: `yt-dlp: error: no
+      such option: --js-runtimes`, porque essa opção só existe em versões
+      mais novas. Piorou por causa de um segundo bug: depois de instalar
+      Python 3.13 via Homebrew e reinstalar o yt-dlp com ele, o
+      `install.sh` antigo (`YTDLP_PATH="$(command -v yt-dlp)"`) continuava
+      achando o yt-dlp VELHO do Python 3.9, porque a pasta de scripts do
+      3.9 vinha antes da do 3.13 no PATH (instalada nesse Mac por algum
+      mecanismo anterior, provavelmente o instalador oficial do
+      python.org). Resultado: parecia que a reinstalação "não tinha
+      funcionado".
+    - **Fix, em ordem, tudo dentro do próprio `install.sh` agora:**
+      (1) instala o Homebrew automaticamente se não existir
+      (`NONINTERACTIVE=1`, só pede a senha do Mac uma vez, no sudo);
+      (2) resolve um `python3` preferindo `/opt/homebrew/bin/python3` ou
+      `/usr/local/bin/python3` (instala via `brew install python3` se
+      nenhum existir) em vez de `command -v python3`, que pegaria o do
+      sistema; (3) usa essa MESMA variável `$PYTHON3_PATH` do início ao
+      fim do script — pra instalar o yt-dlp, pra resolver o caminho final
+      do yt-dlp instalado (via `site.getuserbase()`, não `command -v`, o
+      que elimina o bug do PATH com Python velho na frente) e pra gerar o
+      `run_host.sh`; (4) adiciona `--break-system-packages` ao
+      `pip install`, com fallback pro comando antigo se a flag não for
+      reconhecida (Python mais antigo sem PEP 668). O README também ganhou
+      avisos sobre o prompt de instalação das Command Line Tools do Xcode,
+      que pode aparecer na primeira vez que qualquer comando de
+      desenvolvedor roda num Mac novo (não é bug do BaixaAI, é do macOS).
+
 ## Versionamento (Git/GitHub)
 
 - Repositório remoto: https://github.com/eusoumarcusbr/baixaai (público).
@@ -497,6 +545,25 @@ Nesta ordem, ao longo do desenvolvimento:
     recarregar a extensão em `chrome://extensions`; o host nativo novo
     entra em uso sozinho (não há dependência nova, não precisa rodar
     `install.sh`).
+23. Primeira instalação de verdade num Mac de terceiro (Maria), guiada
+    passo a passo pelo Terminal. Cadeia de problemas, todos novos: zip
+    inicial mandado pelo usuário estava cheio de sobras de depuração da
+    sessão anterior (resolvido recomendando baixar limpo do GitHub);
+    "Specified native messaging host not found" → `install.sh` nunca tinha
+    rodado; pasta confundida entre Desktop/Downloads (o comando `find`
+    tropeçou num teclado com `~` quebrado — resolvido usando `$HOME` em vez
+    de `~`); "Native host has exited" de novo, dessa vez com o
+    `native-host` dentro de `~/Downloads` → mesma causa da decisão #17, mas
+    confirma que a proteção TCC cobre Downloads também, não só Desktop;
+    depois de mover pra fora, veio `error: externally-managed-environment`
+    (pip do Homebrew) e depois o yt-dlp instalado ficou preso numa versão
+    de quase um ano atrás (Python 3.9 do sistema) com `no such option:
+    --js-runtimes` mesmo depois de instalar Python 3.13 via Homebrew,
+    porque o `command -v yt-dlp` ainda achava o script do Python velho.
+    Todos os quatro problemas de Python/Homebrew motivaram a decisão #21 —
+    `install.sh` agora resolve tudo isso sozinho, sem precisar de nenhum
+    comando manual extra. Terminou com o Instagram baixando com sucesso no
+    Mac dela.
 
 ## Estado atual
 
@@ -508,7 +575,9 @@ Nesta ordem, ao longo do desenvolvimento:
   `~/Desktop/AgentesIA/baixaai/`, `native-host` roda de
   `~/baixaai-native-host/native-host/` — ver aviso "três pastas" no topo
   do documento. v2.6.0 (11/09/2026) adiciona a ponte com o TranscrevAI
-  (decisão #20).
+  (decisão #20). v2.6.2 (29/09/2026): primeira instalação de ponta a ponta
+  num Mac de terceiro (Maria), `install.sh` agora instala Homebrew e
+  garante Python moderno sozinho (decisão #21, histórico #23).
 - **Windows**: implementado de verdade em 03/08/2026 (`install.ps1` +
   notificação/som/flags de processo cross-platform em `baixaai_host.py`,
   decisão #12) — antes disso era só documentação sem código

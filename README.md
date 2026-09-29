@@ -48,17 +48,23 @@ baixaai/
 
 #### macOS
 
-Requer Python 3 e `pip3` (o macOS já vem com eles; se faltar, instale via
-`brew install python3` ou use o conda, se já tiver).
+Não precisa instalar nada antes — o script cuida de tudo (Homebrew, Python
+moderno, yt-dlp, ffmpeg com suporte a AV1). Só precisa de conexão com a
+internet.
 
 ```bash
 cd baixaai/native-host
 bash install.sh
 ```
 
-O script instala o `yt-dlp` (via `pip3 install --user`), confere/instala o
-`ffmpeg`, grava os caminhos absolutos encontrados (importante quando você
-usa conda/homebrew) e registra o host nativo no Chrome.
+O script instala o Homebrew se faltar (pode pedir sua senha do Mac — só da
+primeira vez), garante um Python moderno (evita ficar preso na versão antiga
+do sistema, que trava o yt-dlp numa versão sem os recursos mais novos),
+instala o `yt-dlp` e o `ffmpeg` (com suporte a AV1), grava os caminhos
+absolutos encontrados e registra o host nativo no Chrome. Em Macs que nunca
+tiveram nada de desenvolvedor instalado, pode aparecer uma janela do sistema
+pedindo pra instalar as "Command Line Tools" — clique em **Instalar**, espere
+terminar (10–20 min, precisa de internet) e rode `bash install.sh` de novo.
 
 > **Pasta em Desktop, Documents, Downloads ou volume externo?** Se der erro
 > "Native host has exited" mesmo com tudo certo (manifesto correto, yt-dlp/
